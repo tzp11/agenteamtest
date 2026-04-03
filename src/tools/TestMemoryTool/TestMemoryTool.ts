@@ -97,6 +97,19 @@ Operations:
     return result
   },
 
+  async checkPermissions(input) {
+    // 对于 record 操作，需要写入权限
+    if (input.operation === 'record') {
+      return {
+        behavior: 'ask',
+        message: `Record test result for "${input.testName}" (${input.result})?`,
+        updatedInput: input
+      }
+    }
+    // 其他操作（query, statistics, patterns）只读，不需要权限
+    return { behavior: 'allow', updatedInput: input }
+  },
+
   call: async (args: InputSchema) => {
     const storage = new TestMemoryStorage()
 
