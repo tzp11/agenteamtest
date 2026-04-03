@@ -1,74 +1,24 @@
-#!/usr/bin/env node
-/**
- * 测试 TestMemoryTool 的基本功能
- */
+#!/usr/bin/env bash
+# 测试 TestMemoryTool 的脚本
 
-import { TestMemoryStorage } from './src/tools/TestMemoryTool/storage.js'
+cd /home/tzp/work/agent/my_test
 
-async function testStorage() {
-  console.log('🧪 Testing TestMemoryTool Storage...\n')
+echo "=== 测试 TestMemoryTool - 记录测试结果 ==="
+/home/tzp/work/agent/MAi_Coding/bun-linux-x64/bun --env-file=.env ./src/entrypoints/cli.tsx \
+  --print \
+  --debug \
+  "使用 TestMemoryTool 记录一个测试结果：测试名称 test_login_success，结果 pass，执行时间 125" 2>&1
 
-  const storage = new TestMemoryStorage()
+echo ""
+echo "=== 测试 TestMemoryTool - 查询失败模式 ==="
+/home/tzp/work/agent/MAi_Coding/bun-linux-x64/bun --env-file=.env ./src/entrypoints/cli.tsx \
+  --print \
+  --debug \
+  "使用 TestMemoryTool 查询常见的失败模式" 2>&1
 
-  // 测试 1: 记录测试结果
-  console.log('Test 1: Recording test results...')
-  await storage.recordTest({
-    testName: 'test_login_success',
-    result: 'pass',
-    timestamp: Date.now(),
-    executionTime: 125,
-    filePath: 'tests/auth.test.ts'
-  })
-
-  await storage.recordTest({
-    testName: 'test_login_invalid',
-    result: 'fail',
-    timestamp: Date.now(),
-    executionTime: 89,
-    filePath: 'tests/auth.test.ts',
-    errorMessage: 'TypeError: Cannot read property token',
-    stackTrace: 'at login.ts:45'
-  })
-
-  await storage.recordTest({
-    testName: 'test_login_success',
-    result: 'pass',
-    timestamp: Date.now(),
-    executionTime: 130,
-    filePath: 'tests/auth.test.ts'
-  })
-
-  console.log('✅ Recorded 3 test results\n')
-
-  // 测试 2: 查询历史
-  console.log('Test 2: Querying history...')
-  const history = await storage.queryHistory({
-    testName: 'test_login_success',
-    limit: 10
-  })
-  console.log(`✅ Found ${history.length} records for test_login_success`)
-  console.log(JSON.stringify(history, null, 2))
-  console.log()
-
-  // 测试 3: 获取统计
-  console.log('Test 3: Getting statistics...')
-  const stats = await storage.getStatistics()
-  console.log(`✅ Found statistics for ${stats.length} tests`)
-  for (const stat of stats) {
-    console.log(`  - ${stat.testName}: ${stat.passCount}/${stat.totalRuns} passed (${(stat.passRate * 100).toFixed(1)}%)`)
-  }
-  console.log()
-
-  // 测试 4: 获取失败模式
-  console.log('Test 4: Getting failure patterns...')
-  const patterns = await storage.getFailurePatterns(5)
-  console.log(`✅ Found ${patterns.length} failure patterns`)
-  for (const pattern of patterns) {
-    console.log(`  - "${pattern.errorSignature.substring(0, 50)}..." (${pattern.count} occurrences)`)
-  }
-  console.log()
-
-  console.log('🎉 All tests passed!')
-}
-
-testStorage().catch(console.error)
+echo ""
+echo "=== 测试 TestCoverageTool - 检测项目 ==="
+/home/tzp/work/agent/MAi_Coding/bun-linux-x64/bun --env-file=.env ./src/entrypoints/cli.tsx \
+  --print \
+  --debug \
+  "使用 TestCoverageTool 检测项目语言" 2>&1

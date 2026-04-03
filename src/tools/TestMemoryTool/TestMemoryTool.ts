@@ -93,8 +93,12 @@ Operations:
     return null
   },
 
-  mapToolResultToToolResultBlockParam(result) {
-    return result
+  mapToolResultToToolResultBlockParam(content, toolUseID) {
+    return {
+      type: 'tool_result' as const,
+      tool_use_id: toolUseID,
+      content: JSON.stringify(content)
+    }
   },
 
   async checkPermissions(input) {
