@@ -90,7 +90,7 @@ Operations:
     return result
   },
 
-  call: async (args: InputSchema) => {
+  call: async (args: InputSchema, context, canUseTool, parentMessage) => {
     const cwd = getCwd()
 
     try {

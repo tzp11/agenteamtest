@@ -110,7 +110,7 @@ Operations:
     return { behavior: 'allow', updatedInput: input }
   },
 
-  call: async (args: InputSchema) => {
+  call: async (args: InputSchema, context, canUseTool, parentMessage) => {
     const storage = new TestMemoryStorage()
 
     try {
