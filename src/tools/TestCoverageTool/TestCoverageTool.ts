@@ -39,8 +39,11 @@ type InputSchema = z.infer<typeof inputSchema>
 
 export const TestCoverageTool = buildTool({
   name: 'TestCoverageTool',
-  description: async () => `
-Analyzes test coverage for your project. Supports multiple languages and coverage tools.
+
+  maxResultSizeChars: 20_000,
+
+  async description() {
+    return `Analyzes test coverage for your project. Supports multiple languages and coverage tools.
 
 Supported Languages:
 - JavaScript/TypeScript (c8, nyc, jest)
@@ -62,12 +65,32 @@ Examples:
 - Detect language: {operation: "detect"}
 - Run coverage: {operation: "run"}
 - Parse report: {operation: "parse", reportPath: "coverage/coverage-final.json"}
-- Analyze: {operation: "analyze"}
-`.trim(),
+- Analyze: {operation: "analyze"}`
+  },
 
-  inputSchema,
+  async prompt() {
+    return `Analyzes test coverage for your project. Supports multiple languages and coverage tools.
 
-  call: async (args: InputSchema, context) => {
+Operations:
+- detect: Detect project language and recommend coverage tools
+- run: Run coverage tool and generate report
+- parse: Parse existing coverage report
+- analyze: Analyze coverage and identify gaps`
+  },
+
+  get inputSchema() {
+    return inputSchema
+  },
+
+  renderToolUseMessage() {
+    return null
+  },
+
+  mapToolResultToToolResultBlockParam(result) {
+    return result
+  },
+
+  call: async (args: InputSchema) => {
     const cwd = getCwd()
 
     try {
@@ -96,6 +119,7 @@ Examples:
 
           if (tools.length === 0) {
             return {
+              data: null,
               error: `No coverage tool available for ${language}`
             }
           }
@@ -124,6 +148,7 @@ Examples:
         case 'parse': {
           if (!args.reportPath) {
             return {
+              data: null,
               error: 'reportPath is required for parse operation'
             }
           }
@@ -134,6 +159,7 @@ Examples:
 
           if (!fs.existsSync(reportPath)) {
             return {
+              data: null,
               error: `Coverage report not found: ${reportPath}`
             }
           }
@@ -143,6 +169,7 @@ Examples:
 
           if (!parser) {
             return {
+              data: null,
               error: 'Unable to determine coverage report format'
             }
           }
@@ -168,6 +195,7 @@ Examples:
 
           if (!reportPath) {
             return {
+              data: null,
               error: 'No coverage report found. Run tests with coverage first.'
             }
           }
@@ -176,6 +204,7 @@ Examples:
 
           if (!parser) {
             return {
+              data: null,
               error: 'Unable to parse coverage report'
             }
           }
@@ -199,11 +228,13 @@ Examples:
 
         default:
           return {
+            data: null,
             error: `Unknown operation: ${args.operation}`
           }
       }
     } catch (error) {
       return {
+        data: null,
         error: `TestCoverageTool error: ${error instanceof Error ? error.message : String(error)}`
       }
     }

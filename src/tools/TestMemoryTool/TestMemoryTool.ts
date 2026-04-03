@@ -54,8 +54,11 @@ type InputSchema = z.infer<typeof inputSchema>
 
 export const TestMemoryTool = buildTool({
   name: 'TestMemoryTool',
-  description: async () => `
-Records and queries test execution history, statistics, and failure patterns.
+
+  maxResultSizeChars: 10_000,
+
+  async description() {
+    return `Records and queries test execution history, statistics, and failure patterns.
 
 Operations:
 - record: Record a test execution result
@@ -68,12 +71,33 @@ Examples:
 - Record a passing test: {operation: "record", testName: "test_login", result: "pass", executionTime: 125}
 - Query test history: {operation: "query", testName: "test_login", limit: 10}
 - Get statistics: {operation: "statistics", testName: "test_login"}
-- Get failure patterns: {operation: "patterns", limit: 5}
-`.trim(),
+- Get failure patterns: {operation: "patterns", limit: 5}`
+  },
 
-  inputSchema,
+  async prompt() {
+    return `Records and queries test execution history, statistics, and failure patterns.
 
-  call: async (args: InputSchema, context) => {
+Operations:
+- record: Record a test execution result
+- query: Query test history with filters
+- statistics: Get test statistics (pass rate, avg execution time, etc.)
+- patterns: Get common failure patterns
+- cleanup: Remove old test data`
+  },
+
+  get inputSchema() {
+    return inputSchema
+  },
+
+  renderToolUseMessage() {
+    return null
+  },
+
+  mapToolResultToToolResultBlockParam(result) {
+    return result
+  },
+
+  call: async (args: InputSchema) => {
     const storage = new TestMemoryStorage()
 
     try {
@@ -82,6 +106,7 @@ Examples:
           // 验证必需参数
           if (!args.testName || !args.result) {
             return {
+              data: null,
               error: 'testName and result are required for record operation'
             }
           }
@@ -181,11 +206,13 @@ Examples:
 
         default:
           return {
+            data: null,
             error: `Unknown operation: ${args.operation}`
           }
       }
     } catch (error) {
       return {
+        data: null,
         error: `TestMemoryTool error: ${error instanceof Error ? error.message : String(error)}`
       }
     }
