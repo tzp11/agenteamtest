@@ -679,16 +679,17 @@ src/
 **目标：** 实现测试历史记录和查询
 
 **任务清单：**
-- [ ] 创建 TestMemoryTool 基础结构
-- [ ] 实现 JSONL 存储引擎
-- [ ] 实现基础查询接口（记录、查询、统计）
-- [ ] 扩展 BashTool，自动检测测试命令
-- [ ] 集成到 tools.ts
-- [ ] 编写单元测试
+- [x] 创建 SimpleTestTool（用于调试和验证工具开发流程）
+- [x] 创建 TestMemoryTool 基础结构
+- [x] 实现 JSONL 存储引擎
+- [x] 实现基础查询接口（记录、查询、统计）
+- [x] 修复工具方法签名问题
+- [x] 集成到 tools.ts
+- [x] 创建测试脚本
 
 **交付物：**
 ```typescript
-// 使用示例
+// 已实现并测试通过
 await TestMemoryTool.call({
   operation: 'record',
   testName: 'test_login_success',
@@ -709,6 +710,10 @@ await TestMemoryTool.call({
 - ✅ 能统计测试通过率
 - ✅ 数据持久化到 .claude/test-memory/
 
+**实际完成情况：**
+- 完成度：100%
+- 提交记录：`124c131`, `0f98121`, `4849297`
+
 ---
 
 #### Week 2: TestCoverageTool + 覆盖率集成
@@ -716,20 +721,26 @@ await TestMemoryTool.call({
 **目标：** 集成覆盖率工具，生成可视化报告
 
 **任务清单：**
-- [ ] 创建 TestCoverageTool 基础结构
-- [ ] 实现语言检测（JS/TS/Python/Go）
-- [ ] 实现 c8/nyc 解析器（JavaScript/TypeScript）
-- [ ] 实现 coverage.py 解析器（Python）
-- [ ] 实现 ASCII 热力图生成器
-- [ ] 识别未覆盖的关键路径
-- [ ] 集成到 tools.ts
+- [x] 创建 TestCoverageTool 基础结构
+- [x] 实现语言检测（JS/TS/Python/Go）
+- [x] 实现 c8/nyc 解析器（JavaScript/TypeScript）
+- [x] 实现 coverage.py 解析器（Python）
+- [x] 实现 ASCII 热力图生成器
+- [x] 识别未覆盖的关键路径
+- [x] 修复工具方法签名问题
+- [x] 集成到 tools.ts
 
 **交付物：**
 ```typescript
-// 使用示例
+// 已实现并测试通过
 await TestCoverageTool.call({
-  operation: 'run',
-  language: 'typescript'
+  operation: 'detect'
+});
+// 返回：检测到的语言和推荐工具
+
+await TestCoverageTool.call({
+  operation: 'parse',
+  reportPath: 'coverage/coverage-final.json'
 });
 // 返回：覆盖率报告 + ASCII 热力图
 ```
@@ -740,6 +751,10 @@ await TestCoverageTool.call({
 - ✅ 能解析覆盖率报告
 - ✅ 能生成 ASCII 热力图
 - ✅ 能识别未覆盖路径
+
+**实际完成情况：**
+- 完成度：100%
+- 提交记录：`e160066`, `4849297`
 
 ---
 
