@@ -76,6 +76,7 @@ import { ListMcpResourcesTool } from './tools/ListMcpResourcesTool/ListMcpResour
 import { ReadMcpResourceTool } from './tools/ReadMcpResourceTool/ReadMcpResourceTool.js'
 import { TestMemoryTool } from './tools/TestMemoryTool/TestMemoryTool.js'
 import { TestCoverageTool } from './tools/TestCoverageTool/TestCoverageTool.js'
+import { TestGraphTool } from './tools/TestGraphTool/TestGraphTool.js'
 import { SimpleTestTool } from './tools/SimpleTestTool/SimpleTestTool.js'
 import { ToolSearchTool } from './tools/ToolSearchTool/ToolSearchTool.js'
 import { EnterPlanModeTool } from './tools/EnterPlanModeTool/EnterPlanModeTool.js'
