@@ -52,14 +52,14 @@ export class GitDiffDetector {
    * 获取未暂存的变更
    */
   async getUnstagedChanges(): Promise<GitFileChange[]> {
-    return this.parseGitDiff('git diff --numstat')
+    return this.parseGitDiffWithStatus(false)
   }
 
   /**
    * 获取已暂存的变更
    */
   async getStagedChanges(): Promise<GitFileChange[]> {
-    return this.parseGitDiff('git diff --cached --numstat')
+    return this.parseGitDiffWithStatus(true)
   }
 
   /**
@@ -143,6 +143,78 @@ export class GitDiffDetector {
   }
 
   /**
+   * 结合 git status 解析变更（更准确地判断文件状态）
+   */
+  private async parseGitDiffWithStatus(staged: boolean): Promise<GitFileChange[]> {
+    try {
+      // 1. 获取 git status 来判断文件的真实状态
+      const statusCommand = await exec(
+        `cd "${this.cwd}" && git status --porcelain`,
+        new AbortController().signal,
+        'bash'
+      )
+      const statusResult = await statusCommand.result
+      const statusMap = new Map<string, string>()
+
+      for (const line of statusResult.stdout.trim().split('\n')) {
+        if (line.length < 4) continue
+        const status = staged ? line[0] : line[1]  // 第一个字符是暂存区，第二个是工作区
+        const filePath = line.substring(3)
+        if (status !== ' ') {
+          statusMap.set(filePath, status)
+        }
+      }
+
+      // 2. 获取 numstat 来获取行数变更
+      const diffCommand = staged ? 'git diff --cached --numstat' : 'git diff --numstat'
+      const command = await exec(
+        `cd "${this.cwd}" && ${diffCommand}`,
+        new AbortController().signal,
+        'bash'
+      )
+      const result = await command.result
+      const lines = result.stdout.trim().split('\n').filter(line => line.length > 0)
+
+      const changes: GitFileChange[] = []
+
+      for (const line of lines) {
+        const parts = line.split('\t')
+        if (parts.length < 3) continue
+
+        const [added, deleted, filePath] = parts
+        const linesAdded = added === '-' ? 0 : parseInt(added, 10)
+        const linesDeleted = deleted === '-' ? 0 : parseInt(deleted, 10)
+
+        // 从 status 获取真实的变更类型
+        const status = statusMap.get(filePath)
+        let changeType: 'added' | 'modified' | 'deleted' | 'renamed'
+
+        if (status === 'A') {
+          changeType = 'added'
+        } else if (status === 'D') {
+          changeType = 'deleted'
+        } else if (status === 'R') {
+          changeType = 'renamed'
+        } else {
+          changeType = 'modified'
+        }
+
+        changes.push({
+          filePath,
+          changeType,
+          linesAdded,
+          linesDeleted
+        })
+      }
+
+      return changes
+    } catch (error) {
+      console.error('[DEBUG gitDiffDetector] ERROR in parseGitDiffWithStatus:', error)
+      return []
+    }
+  }
+
+  /**
    * 解析 git diff --numstat 输出
    */
   private async parseGitDiff(command: string): Promise<GitFileChange[]> {
@@ -184,14 +256,10 @@ export class GitDiffDetector {
           })
         } else {
           // 判断变更类型
-          let changeType: 'added' | 'modified' | 'deleted'
-          if (linesAdded > 0 && linesDeleted === 0) {
-            changeType = 'added'
-          } else if (linesAdded === 0 && linesDeleted > 0) {
-            changeType = 'deleted'
-          } else {
-            changeType = 'modified'
-          }
+          // 对于 commit 之间的 diff，我们无法使用 git status
+          // 使用简化的判断：任何有变更的文件都是 modified
+          // 除非能从其他信息判断（比如文件路径变化表示 renamed）
+          const changeType: 'added' | 'modified' | 'deleted' = 'modified'
 
           changes.push({
             filePath,
