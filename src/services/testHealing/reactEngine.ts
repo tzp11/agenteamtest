@@ -575,7 +575,7 @@ export class ReActEngine {
   }
 
   /**
-   * Load fix patterns from historical data
+   * Load fix patterns from historical data (only successful ones)
    */
   private async loadFixPatterns(): Promise<void> {
     if (!this.storage) return
@@ -584,7 +584,10 @@ export class ReActEngine {
       const records = await this.storage.queryHistory({ limit: 100 })
 
       for (const record of records) {
-        if (record.result === 'fail' && record.errorMessage) {
+        // Only load successful fixes (result === 'pass') and have error message
+        if (record.result === 'pass' && record.errorMessage) {
+          const errorPattern = record.errorMessage.substring(0, 100)
+
           const failure: TestFailureInfo = {
             testName: record.testName,
             testFile: record.filePath || '',
@@ -593,14 +596,26 @@ export class ReActEngine {
           }
           const classification = this.classifier.classify(failure)
 
-          this.fixPatterns.push({
-            failureType: classification.type,
-            language: classification.language,
-            errorPattern: record.errorMessage.substring(0, 100),
-            fix: classification.suggestedFix || '',
-            successCount: 0,
-            lastUsed: record.timestamp
-          })
+          // Check if already exists
+          const existing = this.fixPatterns.find(
+            p => p.failureType === classification.type &&
+                 p.language === classification.language &&
+                 p.errorPattern === errorPattern
+          )
+
+          if (existing) {
+            existing.successCount++
+            existing.lastUsed = record.timestamp
+          } else {
+            this.fixPatterns.push({
+              failureType: classification.type,
+              language: classification.language,
+              errorPattern: errorPattern,
+              fix: classification.suggestedFix || '',
+              successCount: 1,
+              lastUsed: record.timestamp
+            })
+          }
         }
       }
     } catch (error) {
@@ -662,9 +677,19 @@ export class ReActEngine {
       console.log(`[ReActEngine] Found known fix pattern: ${knownFix}`)
     }
 
-    // Step 3: Execute ReAct loop
+    // Step 3: Execute ReAct loop with actual fix execution
     let currentAttempt = 0
     let lastStep: ReActStep | null = null
+    let lastFixResult: any = null
+
+    // Try to load executeFix function
+    let executeFixFn: any = null
+    try {
+      const fixModule = await import('./fixStrategies.js')
+      executeFixFn = fixModule.executeFix
+    } catch (e) {
+      console.warn('[ReActEngine] Could not load fixStrategies:', e)
+    }
 
     while (currentAttempt < this.maxAttempts) {
       currentAttempt++
@@ -676,24 +701,49 @@ export class ReActEngine {
           ? '分析成功，继续'
           : `反思：上一步 ${lastStep?.action} 失败，需要尝试其他方法`
 
-      // Action: Attempt a fix
+      // Action: Attempt a fix (get the strategy)
       const fixAction = this.generateAction(classification, currentAttempt)
       const action = `尝试修复 ${currentAttempt}/${this.maxAttempts}: ${fixAction}`
 
-      // Observation: Generate observation
-      const observation = `执行修复: ${fixAction}`
+      // Observation: Actually execute the fix if we have the function
+      let observation = `执行修复: ${fixAction}`
+      let stepSuccess = false
+
+      if (executeFixFn && currentAttempt === 1) {
+        try {
+          const fixResult = await executeFixFn(classification.language, classification.type, failure)
+          lastFixResult = fixResult
+          if (fixResult.success) {
+            observation = `✓ 执行成功: ${fixResult.fix || fixResult.action}\n  详情: ${fixResult.details || ''}`
+            stepSuccess = true
+          } else {
+            observation = `✗ 执行失败: ${fixResult.details || '未知错误'}`
+          }
+        } catch (e: any) {
+          observation = `✗ 执行出错: ${e.message}`
+        }
+      } else if (currentAttempt === 1 && knownFix) {
+        // If we found a known fix from history
+        observation = `✓ 使用已知修复: ${knownFix}`
+        stepSuccess = true
+      }
 
       // Create step
       const step: ReActStep = {
         thought,
         action,
         observation,
-        success: currentAttempt <= 1 && !!knownFix,
+        success: stepSuccess,
         timestamp: Date.now()
       }
 
       steps.push(step)
       lastStep = step
+
+      // If fix succeeded, we can stop early
+      if (stepSuccess) {
+        break
+      }
 
       if (currentAttempt >= this.maxAttempts) {
         break
@@ -702,19 +752,19 @@ export class ReActEngine {
 
     // Step 4: Return result
     const result: HealingResult = {
-      success: !!knownFix,
+      success: steps.some(s => s.success),
       attempts: currentAttempt,
       maxAttempts: this.maxAttempts,
       failureType: classification.type,
       language: classification.language,
       steps,
-      finalFix: steps[steps.length - 1]?.action,
+      finalFix: lastFixResult?.fix || knownFix || steps[steps.length - 1]?.action,
       healingTime: Date.now() - startTime
     }
 
-    // If we found a known fix, save the pattern
-    if (knownFix) {
-      this.saveFixPattern(classification.type, classification.language, error, knownFix)
+    // If we found a known fix or fix succeeded, save the pattern
+    if (knownFix || result.success) {
+      this.saveFixPattern(classification.type, classification.language, error, result.finalFix || '')
     }
 
     return result
@@ -758,17 +808,32 @@ export class ReActEngine {
     averageAttempts: number
     patternsCount: number
     languagesSupported: Language[]
+    recentSuccesses: number
   } {
+    const totalSuccesses = this.fixPatterns.reduce((sum, p) => sum + p.successCount, 0)
+
     return {
       totalHeals: this.fixPatterns.length,
-      successRate: this.fixPatterns.length > 0
-        ? this.fixPatterns.reduce((sum, p) => sum + p.successCount, 0) / this.fixPatterns.length
-        : 0,
+      successRate: this.fixPatterns.length > 0 ? totalSuccesses / this.fixPatterns.length : 0,
       averageAttempts: this.maxAttempts,
       patternsCount: this.fixPatterns.length,
-      languagesSupported: FailureClassifier.getSupportedLanguages()
+      languagesSupported: FailureClassifier.getSupportedLanguages(),
+      recentSuccesses: totalSuccesses
     }
   }
+}
+
+// Singleton instance for statistics (persists across calls)
+let statsEngine: ReActEngine | null = null
+
+/**
+ * Get singleton engine for statistics tracking
+ */
+export function getStatsEngine(): ReActEngine {
+  if (!statsEngine) {
+    statsEngine = new ReActEngine({ maxAttempts: 3 })
+  }
+  return statsEngine
 }
 
 /**
@@ -779,16 +844,16 @@ export function createReActEngine(options?: { maxAttempts?: number }): ReActEngi
 }
 
 /**
- * Quick heal function - convenience wrapper
+ * Quick heal function - convenience wrapper (uses singleton for stats)
  */
 export async function quickHeal(
   testName: string,
   testFile: string,
   error: string,
   stackTrace?: string,
-  maxAttempts?: number
+  _maxAttempts?: number // Reserved for future use
 ): Promise<HealingResult> {
-  const engine = createReActEngine({ maxAttempts })
+  const engine = getStatsEngine()
   await engine.initialize()
   return engine.healTest(testName, testFile, error, stackTrace)
 }

@@ -1620,3 +1620,177 @@ step.success = false  // 永远 false，不验证
 3. 集成 BashTool 执行系统命令
 4. 实现真正的测试验证循环
 5. 修复源代码错误分类问题
+
+---
+
+## Week 7: ReAct 引擎 + 失败分类
+
+### 问题 1: 修复策略只生成描述，不执行修复 ⭐⭐⭐
+
+**现象：** `executeFix` 函数存在但 ReAct 循环没有调用它，所有步骤的 `success` 都为 `false`。
+
+**根本原因：**
+- `healTest` 方法中的 ReAct 循环只生成了策略描述字符串
+- 没有实际调用 `executeFix` 执行真正的修复
+- 导致 `successRate: 0%`，修复记录不正确
+
+**错误代码：**
+```typescript
+// healTest 方法中的循环
+while (currentAttempt < this.maxAttempts) {
+  // 生成策略描述
+  const fixAction = this.generateAction(classification, currentAttempt)
+  const action = `尝试修复 ${currentAttempt}/${this.maxAttempts}: ${fixAction}`
+  
+  // ❌ 问题：只生成描述，没有执行
+  const observation = `执行修复: ${fixAction}`
+  
+  // 所有步骤都标记为失败
+  step.success = false  // 永远 false
+}
+```
+
+**解决方案：**
+```typescript
+// 在 ReAct 循环中动态加载并执行修复
+let executeFixFn: any = null
+try {
+  const fixModule = await import('./fixStrategies.js')
+  executeFixFn = fixModule.executeFix
+} catch (e) { ... }
+
+// 循环中实际执行
+if (executeFixFn && currentAttempt === 1) {
+  const fixResult = await executeFixFn(classification.language, classification.type, failure)
+  if (fixResult.success) {
+    observation = `✓ 执行成功: ${fixResult.fix}`
+    stepSuccess = true
+  }
+}
+
+// 成功后保存模式
+if (result.success) {
+  this.saveFixPattern(classification.type, classification.language, error, result.finalFix || '')
+}
+```
+
+---
+
+### 问题 2: 统计信息不累积，每次调用都重置 ⭐⭐
+
+**现象：** 执行多次修复后，`statistics` 操作返回的 `totalHeals: 0`，`successRate: 0%`。
+
+**根本原因：**
+- 每次调用 `TestHealingTool.call()` 都使用 `createReActEngine()` 创建新实例
+- 新实例的 `fixPatterns` 数组为空，统计数据不累积
+
+**错误代码：**
+```typescript
+case 'heal':
+case 'statistics': {
+  // ❌ 每次都创建新实例，统计丢失
+  const engine = createReActEngine({ maxAttempts: args.maxAttempts || 3 })
+  await engine.initialize()
+  // ...
+}
+```
+
+**解决方案：**
+```typescript
+// 添加单例引擎
+let statsEngine: ReActEngine | null = null
+
+export function getStatsEngine(): ReActEngine {
+  if (!statsEngine) {
+    statsEngine = new ReActEngine({ maxAttempts: 3 })
+  }
+  return statsEngine
+}
+
+// 修复后：所有操作使用单例
+case 'heal':
+case 'execute':
+case 'report':
+case 'statistics': {
+  const engine = getStatsEngine()  // ✅ 使用单例
+  await engine.initialize()
+  // ...
+}
+```
+
+**关键要点：**
+- 修复成功后必须调用 `saveFixPattern` 保存模式
+- 单例引擎确保统计跨调用累积
+- 修复完成后立即保存，不要等到下次调用
+
+---
+
+### 问题 3: strategies 返回空名称，没有实际内容 ⭐⭐
+
+**现象：** `getAvailableStrategies` 只返回 `strategy-1`, `strategy-2` 等索引，没有实际策略名称。
+
+**错误代码：**
+```typescript
+export function getAvailableStrategies(language, failureType): string[] {
+  // ❌ 返回索引字符串
+  return typeStrategies.map((_, index) => `strategy-${index + 1}`)
+}
+```
+
+**解决方案：**
+```typescript
+// 添加名称映射
+const names: Record<number, string> = {
+  0: 'pip-install',
+  1: 'check-venv',
+  2: 'fix-syntax',
+  // ...
+}
+
+export function getStrategyDetails(language, failureType) {
+  return typeStrategies.map((_, index) => ({
+    name: names[index] || `strategy-${index + 1}`,
+    description: descriptions[names[index]] || `修复策略 ${index + 1}`
+  }))
+}
+```
+
+---
+
+## Week 8: 修复策略 + 执行器
+
+### 问题 1: quickHeal 使用独立实例，不记录到统计 ⭐⭐
+
+**现象：** 直接调用 `quickHeal` 函数后，统计没有变化。
+
+**根本原因：** `quickHeal` 使用 `createReActEngine()` 创建新实例，而不是使用单例。
+
+**错误代码：**
+```typescript
+export async function quickHeal(...) {
+  // ❌ 每次创建新实例
+  const engine = createReActEngine({ maxAttempts })
+  await engine.initialize()
+  return engine.healTest(...)
+}
+```
+
+**解决方案：**
+```typescript
+export async function quickHeal(...) {
+  // ✅ 使用单例引擎
+  const engine = getStatsEngine()
+  await engine.initialize()
+  return engine.healTest(...)
+}
+```
+
+---
+
+### 经验总结
+
+1. **单例模式** - 统计功能必须使用单例引擎，否则数据不累积
+2. **动态执行** - 修复策略必须实际调用 `executeFix`，不能只生成描述
+3. **及时保存** - 修复成功后立即调用 `saveFixPattern`，不要延迟
+4. **名称映射** - 策略必须有实际名称和描述，不能只是索引号
+5. **工具 vs 底层类** - 集成时使用底层类（如 TestMemoryStorage），不是工具类
