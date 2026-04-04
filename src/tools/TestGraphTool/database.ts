@@ -1,4 +1,4 @@
-import Database from 'better-sqlite3'
+import { Database } from 'bun:sqlite'
 import fs from 'node:fs'
 import path from 'node:path'
 import { getCwd } from '../../utils/cwd.js'
@@ -64,7 +64,7 @@ export interface GitChange {
  * TestGraph 数据库管理
  */
 export class TestGraphDatabase {
-  private db: Database.Database
+  private db: Database
   private dbPath: string
 
   constructor(cwd?: string) {
@@ -80,7 +80,7 @@ export class TestGraphDatabase {
     this.db = new Database(this.dbPath)
 
     // 启用外键约束
-    this.db.pragma('foreign_keys = ON')
+    this.db.run('PRAGMA foreign_keys = ON')
 
     // 初始化数据库
     this.initialize()
@@ -93,7 +93,7 @@ export class TestGraphDatabase {
     const schemaPath = path.join(__dirname, 'schema.sql')
     const schema = fs.readFileSync(schemaPath, 'utf-8')
 
-    // 执行 schema
+    // 执行 schema（bun:sqlite 使用 exec）
     this.db.exec(schema)
   }
 
