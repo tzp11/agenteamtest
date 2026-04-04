@@ -1490,9 +1490,133 @@ grep -n "TestOrchestratorTool" src/tools.ts
 
 ---
 
-## 下一阶段（Week 7-8）
+## Week 7: ReAct 引擎 + 失败分类
 
-1. 实现 ReActEngine 自愈循环
-2. 实现失败分类器（ENVIRONMENT/TEST_CODE/SOURCE_CODE）
-3. 实现修复策略
-4. 集成 TestMemoryTool 查询历史失败模式
+### 问题 1: 工具模块导入路径错误 ⭐
+
+**现象：** `Cannot find module '../Tool.js'`
+
+**根本原因：** TestHealingTool 使用了旧的 `Tool` 基类导入方式。
+
+**错误示例：**
+```typescript
+// ❌ 错误：从 Tool 基类继承
+import { Tool } from '../Tool.js'
+export class TestHealingTool extends Tool { ... }
+```
+
+**解决方案：**
+```typescript
+// ✅ 正确：使用 buildTool 工厂函数
+import { buildTool, type ToolDef } from '../../Tool.js'
+export const TestHealingTool: ToolDef = buildTool({ ... })
+```
+
+**关键要点：**
+- 使用 `buildTool` 工厂函数而不是直接继承 `Tool`
+- 必须实现 `description()` 和 `prompt()` 方法（异步函数）
+- `mapToolResultToToolResultBlockParam` 必须接受两个参数
+
+---
+
+### 问题 2: TestMemoryTool 集成失败 ⭐⭐⭐
+
+**现象：** ReActEngine 无法加载 TestMemoryTool 查询历史数据。
+
+**根本原因：** 使用了不存在的 `Tool.fromName()` 方法。
+
+**错误示例：**
+```typescript
+// ❌ 错误：Tool.fromName() 不存在
+async function getTestMemoryTool() {
+  const { Tool } = await import('../../index.js')
+  testMemoryTool = Tool.fromName('TestMemoryTool')
+  return testMemoryTool
+}
+```
+
+**解决方案：**
+```typescript
+// ✅ 正确：直接 import Storage 类
+import { TestMemoryStorage } from '../../tools/TestMemoryTool/storage.js'
+
+function getTestStorage(): TestMemoryStorage {
+  if (!testStorage) {
+    testStorage = new TestMemoryStorage()
+  }
+  return testStorage
+}
+
+// 在 initialize 中使用
+async initialize(): Promise<void> {
+  const storage = getTestStorage()
+  await this.loadFixPatterns(storage)
+}
+```
+
+**关键要点：**
+- 工具类通过 `buildTool` 创建，没有 `fromName` 方法
+- 直接 import 底层存储类（TestMemoryStorage）而不是工具类
+- TestMemoryStorage 是独立的，不依赖 Tool 基类
+
+---
+
+### 问题 3: 源代码错误分类不准确
+
+**现象：** `at processPayment (src/payment.js:45)` 被分类为 UNKNOWN。
+
+**根本原因：** 当前正则需要匹配 `throw.*new.*Error` 或 `catch.*block`，简单错误消息无法识别。
+
+**示例：**
+```typescript
+// 输入
+error: Error: something went wrong
+stackTrace: at processPayment (src/payment.js:45)
+
+// 输出
+type: unknown (confidence: 0.3)
+```
+
+**临时解决方案：**
+- 增加更多匹配模式
+- 或使用堆栈跟踪中的文件路径判断（src/ vs test/）
+
+---
+
+### 问题 4: ReAct 循环不执行真正的测试
+
+**现象：** ReActEngine 只生成修复建议，不实际运行测试验证。
+
+**根本原因：** 当前实现是"诊断模式"，只分析错误并返回建议。
+
+**代码说明：**
+```typescript
+// 当前实现
+const observation = `执行修复: ${fixAction}`
+step.success = false  // 永远 false，不验证
+
+// Week 8 需要实现：
+// 1. 实际修改测试文件
+// 2. 运行测试验证
+// 3. 检查分数
+// 4. 循环直到通过或达到上限
+```
+
+---
+
+### 经验总结
+
+1. **工具定义方式** - 使用 `buildTool` 工厂函数，不是继承 `Tool`
+2. **集成存储类** - 直接 import 底层类（如 TestMemoryStorage），不是工具类
+3. **失败分类** - 依赖正则匹配，需要覆盖足够多的错误模式
+4. **循环验证** - Week 7 只生成建议，真正的验证在 Week 8
+
+---
+
+## 下一阶段（Week 8: 修复策略 + 沙盒执行）
+
+1. 实现环境问题修复（killPort、clearCache）
+2. 实现测试代码修复（修改文件）
+3. 集成 BashTool 执行系统命令
+4. 实现真正的测试验证循环
+5. 修复源代码错误分类问题

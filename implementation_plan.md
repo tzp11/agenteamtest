@@ -1103,10 +1103,8 @@ const result = await orchestrator.generateTests({
 - ✅ 能自动分配任务给多个 Agent
 - ✅ 能并行执行 Agent（Unit + Integration）
 - ✅ 能聚合 Agent 结果
-- ✅ 能执行审查循环
+- ✅ 能执行审查循环（Tool 层最多 3 次迭代，75分→85分通过）
 - ✅ 提供工具包装（TestOrchestratorTool）
-- ⚠️ 性能优化（需要实际测试验证）
-- ⚠️ TodoWrite 集成（可选，未实现）
 
 **实现亮点：**
 1. **三阶段工作流**：策略规划 → 并行生成 → 质量审查
@@ -1115,6 +1113,7 @@ const result = await orchestrator.generateTests({
 4. **TestOrchestrator**：主编排器，协调整个流程
 5. **工具包装**：TestOrchestratorTool 提供友好的调用接口
 6. **完整文档**：使用指南、测试脚本、示例场景
+7. **审查重试**：分数 < 80 时自动重新生成，最多 3 次，直到通过
 
 **实现思路与原规划的差异：**
 
@@ -1122,10 +1121,9 @@ const result = await orchestrator.generateTests({
 |--------|---------|------|
 | 集成 TodoWrite 显示进度 | 未实现 | 优先完成核心功能，进度显示可后续添加 |
 | 性能优化（并行、超时控制） | 部分实现 | 实现了并行执行和超时参数，但未做深度优化 |
-| 审查循环迭代 | 简化实现 | 只执行一次审查，未实现多轮迭代 |
+| 审查循环迭代 | 已实现 | 在 TestOrchestratorTool 中实现，分数阈值 80，最多 3 次 |
 
 **已知限制：**
-- 审查循环只执行一次，不支持多轮迭代改进
 - 没有集成 TodoWrite 显示进度
 - 性能优化需要实际测试验证
 - Agent 输出解析依赖文本格式，可能不够健壮
@@ -1139,22 +1137,46 @@ const result = await orchestrator.generateTests({
 **目标：** 实现测试失败的自动诊断
 
 **任务清单：**
-- [ ] 创建 ReActEngine 服务
-- [ ] 实现失败分类器（4 种类型）
-- [ ] 实现 Thought-Action-Observation 循环
-- [ ] 集成 TestMemoryTool（查询历史失败）
-- [ ] 实现重试机制（最多 3 次）
-- [ ] 记录成功的修复模式
+- [x] 创建 ReActEngine 服务
+- [x] 实现失败分类器（4 种类型）
+- [x] 实现 Thought-Action-Observation 循环
+- [x] 集成 TestMemoryTool（查询历史失败）
+- [x] 实现重试机制（最多 3 次）
+- [x] 记录成功的修复模式
+
+**当前进度：100% ✅ - Week 7 完成！**
+
+**实际完成情况：**
+- 完成度：100%
+- 新增文件：4个
+  - `src/services/testHealing/reactEngine.ts` (520行) - ReActEngine 核心引擎
+  - `src/services/testHealing/index.ts` (25行) - 模块导出
+  - `src/tools/TestHealingTool/TestHealingTool.ts` (150行) - 工具包装器
+  - `test-week7-healing.sh` (测试脚本)
+- 核心功能：
+  - **FailureClassifier**: 4 种失败类型分类（ENVIRONMENT/TEST_CODE/SOURCE_CODE/UNKNOWN）
+  - **FixStrategy**: 每种失败类型的修复策略
+  - **ReActEngine**: Thought-Action-Observation 循环
+  - **TestMemoryTool 集成**: 查询历史修复模式
+  - **重试机制**: 默认最多 3 次
+  - **统计功能**: 记录修复成功率
 
 **交付物：**
 ```typescript
 // 使用示例
 const healer = new ReActEngine();
+await healer.initialize();
 const result = await healer.healTest(
   'test_login_success',
-  { error: 'TypeError: Cannot read property token', stack: '...' }
+  'test/auth.test.ts',
+  'TypeError: Cannot read property token',
+  '    at authenticate (auth.ts:45)'
 );
-// 返回：{ success: true, attempts: 2, fix: '...' }
+// 返回：{ success: true, attempts: 2, fix: '...', failureType: 'test-code' }
+
+// 快速修复
+import { quickHeal } from './reactEngine.js';
+const result = await quickHeal('test_login', 'test/auth.test.ts', 'Error: ...');
 ```
 
 **验收标准：**

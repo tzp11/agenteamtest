@@ -78,6 +78,7 @@ import { TestMemoryTool } from './tools/TestMemoryTool/TestMemoryTool.js'
 import { TestCoverageTool } from './tools/TestCoverageTool/TestCoverageTool.js'
 import { TestGraphTool } from './tools/TestGraphTool/TestGraphTool.js'
 import { TestOrchestratorTool } from './tools/TestOrchestratorTool/TestOrchestratorTool.js'
+import { TestHealingTool } from './tools/TestHealingTool/TestHealingTool.js'
 import { SimpleTestTool } from './tools/SimpleTestTool/SimpleTestTool.js'
 import { ToolSearchTool } from './tools/ToolSearchTool/ToolSearchTool.js'
 import { EnterPlanModeTool } from './tools/EnterPlanModeTool/EnterPlanModeTool.js'
@@ -252,6 +253,7 @@ export function getAllBaseTools(): Tools {
     TestCoverageTool,
     TestGraphTool,
     TestOrchestratorTool,
+    TestHealingTool,
     ListMcpResourcesTool,
     ReadMcpResourceTool,
     // Include ToolSearchTool when tool search might be enabled (optimistic check)
