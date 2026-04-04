@@ -26,7 +26,12 @@ export class GitDiffDetector {
    * 获取当前 HEAD 的 commit hash
    */
   async getCurrentCommitHash(): Promise<string> {
-    const result = await exec('git rev-parse HEAD', { cwd: this.cwd })
+    const command = await exec(
+      `cd "${this.cwd}" && git rev-parse HEAD`,
+      new AbortController().signal,
+      'bash'
+    )
+    const result = await command.result
     return result.stdout.trim()
   }
 
@@ -34,7 +39,12 @@ export class GitDiffDetector {
    * 获取当前分支名
    */
   async getCurrentBranch(): Promise<string> {
-    const result = await exec('git branch --show-current', { cwd: this.cwd })
+    const command = await exec(
+      `cd "${this.cwd}" && git branch --show-current`,
+      new AbortController().signal,
+      'bash'
+    )
+    const result = await command.result
     return result.stdout.trim()
   }
 
@@ -66,11 +76,12 @@ export class GitDiffDetector {
    * 获取最近 N 次提交的变更
    */
   async getRecentChanges(count: number = 10): Promise<GitChange[]> {
-    const result = await exec(
-      `git log -${count} --pretty=format:"%H|%an|%at" --numstat`,
-      { cwd: this.cwd }
+    const command = await exec(
+      `cd "${this.cwd}" && git log -${count} --pretty=format:"%H|%an|%at" --numstat`,
+      new AbortController().signal,
+      'bash'
     )
-
+    const result = await command.result
     return this.parseGitLog(result.stdout)
   }
 
@@ -78,11 +89,12 @@ export class GitDiffDetector {
    * 获取指定文件的变更历史
    */
   async getFileHistory(filePath: string, limit: number = 10): Promise<GitChange[]> {
-    const result = await exec(
-      `git log -${limit} --pretty=format:"%H|%an|%at" --numstat -- "${filePath}"`,
-      { cwd: this.cwd }
+    const command = await exec(
+      `cd "${this.cwd}" && git log -${limit} --pretty=format:"%H|%an|%at" --numstat -- "${filePath}"`,
+      new AbortController().signal,
+      'bash'
     )
-
+    const result = await command.result
     return this.parseGitLog(result.stdout)
   }
 
@@ -91,7 +103,12 @@ export class GitDiffDetector {
    */
   async isFileTracked(filePath: string): Promise<boolean> {
     try {
-      await exec(`git ls-files --error-unmatch "${filePath}"`, { cwd: this.cwd })
+      const command = await exec(
+        `cd "${this.cwd}" && git ls-files --error-unmatch "${filePath}"`,
+        new AbortController().signal,
+        'bash'
+      )
+      await command.result
       return true
     } catch {
       return false
@@ -107,11 +124,12 @@ export class GitDiffDetector {
     timestamp: number
   } | null> {
     try {
-      const result = await exec(
-        `git log -1 --pretty=format:"%H|%an|%at" -- "${filePath}"`,
-        { cwd: this.cwd }
+      const command = await exec(
+        `cd "${this.cwd}" && git log -1 --pretty=format:"%H|%an|%at" -- "${filePath}"`,
+        new AbortController().signal,
+        'bash'
       )
-
+      const result = await command.result
       const [commitHash, author, timestamp] = result.stdout.trim().split('|')
 
       return {
@@ -130,9 +148,15 @@ export class GitDiffDetector {
   private async parseGitDiff(command: string): Promise<GitFileChange[]> {
     try {
       console.log('[DEBUG gitDiffDetector] Executing:', command, 'in', this.cwd)
-      const result = await exec(command, { cwd: this.cwd })
-      console.log('[DEBUG gitDiffDetector] Result type:', typeof result)
-      console.log('[DEBUG gitDiffDetector] Result keys:', Object.keys(result))
+      console.log('[DEBUG gitDiffDetector] About to call exec...')
+      const shellCommand = await exec(
+        `cd "${this.cwd}" && ${command}`,
+        new AbortController().signal,
+        'bash'
+      )
+      console.log('[DEBUG gitDiffDetector] exec returned, waiting for result...')
+      const result = await shellCommand.result
+      console.log('[DEBUG gitDiffDetector] Result received!')
       console.log('[DEBUG gitDiffDetector] Result.stdout:', result.stdout)
       console.log('[DEBUG gitDiffDetector] Result.stdout length:', result.stdout?.length)
       const lines = result.stdout.trim().split('\n').filter(line => line.length > 0)
@@ -180,7 +204,8 @@ export class GitDiffDetector {
 
       return changes
     } catch (error) {
-      console.error('Failed to parse git diff:', error)
+      console.error('[DEBUG gitDiffDetector] ERROR:', error)
+      console.error('[DEBUG gitDiffDetector] Error message:', error instanceof Error ? error.message : String(error))
       return []
     }
   }
