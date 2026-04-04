@@ -189,27 +189,34 @@ export class IncrementalUpdater {
     functionsUpdated: number
     callsUpdated: number
   }> {
+    console.log('[DEBUG updateFile] Starting update for:', filePath)
     let functionsUpdated = 0
     let callsUpdated = 0
 
-    // 1. 删除该文件的旧数据
-    await this.handleDeletedFile(filePath)
-
-    // 2. 重新扫描该文件
-    const builder = new CallGraphBuilder(this.db, this.cwd)
-
-    // 使用 CallGraphBuilder 的私有方法（需要暴露或重构）
-    // 这里简化实现：直接调用 buildCallGraph 但只处理单个文件
     try {
+      // 1. 删除该文件的旧数据
+      console.log('[DEBUG updateFile] Deleting old data...')
+      await this.handleDeletedFile(filePath)
+
+      // 2. 重新扫描该文件
+      console.log('[DEBUG updateFile] Creating CallGraphBuilder...')
+      const builder = new CallGraphBuilder(this.db, this.cwd)
+
+      // 使用 CallGraphBuilder 的 processFile 方法
+      console.log('[DEBUG updateFile] Calling processFile...')
       const result = await builder['processFile'](filePath, maxDepth)
+      console.log('[DEBUG updateFile] processFile result:', JSON.stringify(result))
+
       functionsUpdated = result.functionsProcessed
       callsUpdated = result.callsFound
-    } catch (error) {
-      // 如果 processFile 是私有的，我们需要另一种方式
-      console.error(`Error updating file ${filePath}:`, error)
-    }
 
-    return { functionsUpdated, callsUpdated }
+      console.log('[DEBUG updateFile] Update complete:', { functionsUpdated, callsUpdated })
+      return { functionsUpdated, callsUpdated }
+    } catch (error) {
+      console.error('[DEBUG updateFile] Error updating file:', error)
+      console.error('[DEBUG updateFile] Error stack:', error instanceof Error ? error.stack : 'no stack')
+      return { functionsUpdated: 0, callsUpdated: 0 }
+    }
   }
 
   /**
