@@ -47,6 +47,83 @@ export class IncrementalUpdater {
   }
 
   /**
+   * 处理变更列表（核心逻辑）
+   */
+  private async processChanges(
+    changes: Array<{
+      filePath: string
+      changeType: 'added' | 'modified' | 'deleted' | 'renamed'
+      linesAdded: number
+      linesDeleted: number
+    }>,
+    maxDepth: number
+  ): Promise<{
+    filesProcessed: number
+    functionsUpdated: number
+    callsUpdated: number
+    filesDeleted: number
+    errors: string[]
+  }> {
+    const errors: string[] = []
+    let filesProcessed = 0
+    let functionsUpdated = 0
+    let callsUpdated = 0
+    let filesDeleted = 0
+
+    try {
+      // 0. 获取 Git 仓库根目录
+      const gitRoot = await this.getGitRoot()
+      console.log('[DEBUG processChanges] Git root:', gitRoot)
+      console.log('[DEBUG processChanges] Total changes:', changes.length)
+
+      // 处理每个变更的文件
+      for (const change of changes) {
+        try {
+          const filePath = path.join(gitRoot, change.filePath)
+          console.log('[DEBUG processChanges] Processing:', change.filePath)
+          console.log('[DEBUG processChanges] Full path:', filePath)
+
+          if (change.changeType === 'deleted') {
+            await this.handleDeletedFile(filePath)
+            filesDeleted++
+          } else if (change.changeType === 'added' || change.changeType === 'modified') {
+            const shouldProcess = this.shouldProcessFile(filePath)
+            console.log('[DEBUG processChanges] Should process?', shouldProcess)
+            if (shouldProcess) {
+              const result = await this.updateFile(filePath, maxDepth)
+              functionsUpdated += result.functionsUpdated
+              callsUpdated += result.callsUpdated
+              filesProcessed++
+            }
+          }
+        } catch (error) {
+          errors.push(`Error processing ${change.filePath}: ${error instanceof Error ? error.message : String(error)}`)
+        }
+      }
+
+      // 更新最后扫描时间戳
+      await this.updateLastScanTimestamp()
+
+      return {
+        filesProcessed,
+        functionsUpdated,
+        callsUpdated,
+        filesDeleted,
+        errors
+      }
+    } catch (error) {
+      errors.push(`Process changes failed: ${error instanceof Error ? error.message : String(error)}`)
+      return {
+        filesProcessed,
+        functionsUpdated,
+        callsUpdated,
+        filesDeleted,
+        errors
+      }
+    }
+  }
+
+  /**
    * 增量更新调用图
    * 只处理自上次更新以来发生变化的文件
    */
@@ -61,73 +138,24 @@ export class IncrementalUpdater {
     errors: string[]
   }> {
     const { fromCommit, maxDepth = 3 } = options
-    const errors: string[] = []
-    let filesProcessed = 0
-    let functionsUpdated = 0
-    let callsUpdated = 0
-    let filesDeleted = 0
 
     try {
-      // 0. 获取 Git 仓库根目录
-      const gitRoot = await this.getGitRoot()
-      console.log('[DEBUG incrementalUpdate] Git root:', gitRoot)
-      console.log('[DEBUG incrementalUpdate] CWD:', this.cwd)
-
-      // 1. 获取变更的文件列表
+      // 获取变更的文件列表
       const changes = fromCommit
         ? await this.gitDetector.getChangesBetweenCommits(fromCommit, 'HEAD')
         : await this.getUnstagedAndStagedChanges()
 
       console.log('[DEBUG incrementalUpdate] Total changes detected:', changes.length)
-      console.log('[DEBUG incrementalUpdate] Changes:', JSON.stringify(changes, null, 2))
 
-      // 2. 处理每个变更的文件
-      for (const change of changes) {
-        try {
-          // Git 返回的路径是相对于仓库根目录的，需要使用 gitRoot 而不是 cwd
-          const filePath = path.join(gitRoot, change.filePath)
-          console.log('[DEBUG incrementalUpdate] Processing change:', change.filePath)
-          console.log('[DEBUG incrementalUpdate] Full path:', filePath)
-          console.log('[DEBUG incrementalUpdate] Change type:', change.changeType)
-
-          if (change.changeType === 'deleted') {
-            // 删除文件：从数据库中移除相关函数
-            await this.handleDeletedFile(filePath)
-            filesDeleted++
-          } else if (change.changeType === 'added' || change.changeType === 'modified') {
-            // 新增或修改文件：重新扫描
-            const shouldProcess = this.shouldProcessFile(filePath)
-            console.log('[DEBUG incrementalUpdate] Should process?', shouldProcess)
-            if (shouldProcess) {
-              const result = await this.updateFile(filePath, maxDepth)
-              functionsUpdated += result.functionsUpdated
-              callsUpdated += result.callsUpdated
-              filesProcessed++
-            }
-          }
-        } catch (error) {
-          errors.push(`Error processing ${change.filePath}: ${error instanceof Error ? error.message : String(error)}`)
-        }
-      }
-
-      // 3. 更新最后扫描时间戳
-      await this.updateLastScanTimestamp()
-
-      return {
-        filesProcessed,
-        functionsUpdated,
-        callsUpdated,
-        filesDeleted,
-        errors
-      }
+      // 处理变更
+      return await this.processChanges(changes, maxDepth)
     } catch (error) {
-      errors.push(`Incremental update failed: ${error instanceof Error ? error.message : String(error)}`)
       return {
-        filesProcessed,
-        functionsUpdated,
-        callsUpdated,
-        filesDeleted,
-        errors
+        filesProcessed: 0,
+        functionsUpdated: 0,
+        callsUpdated: 0,
+        filesDeleted: 0,
+        errors: [`Incremental update failed: ${error instanceof Error ? error.message : String(error)}`]
       }
     }
   }
@@ -287,12 +315,34 @@ export class IncrementalUpdater {
       const relevantCommits = commits.filter(c => c.timestamp > lastScan)
 
       if (relevantCommits.length > 0) {
-        // 使用最早的相关提交作为起点
+        // 有新提交：检查提交之间的变更 + 工作目录的未提交变更
         const oldestCommit = relevantCommits[relevantCommits.length - 1]
-        result = await this.incrementalUpdate({
-          fromCommit: oldestCommit.commitHash,
-          maxDepth: options.maxDepth
-        })
+
+        // 1. 获取提交之间的变更
+        const committedChanges = await this.gitDetector.getChangesBetweenCommits(
+          oldestCommit.commitHash,
+          'HEAD'
+        )
+
+        // 2. 获取工作目录的未提交变更
+        const workingDirChanges = await this.getUnstagedAndStagedChanges()
+
+        // 3. 合并去重（按文件路径）
+        const allChanges = [...committedChanges]
+        const filePathSet = new Set(committedChanges.map(c => c.filePath))
+
+        for (const change of workingDirChanges) {
+          if (!filePathSet.has(change.filePath)) {
+            allChanges.push(change)
+          }
+        }
+
+        console.log('[DEBUG smartUpdate] Committed changes:', committedChanges.length)
+        console.log('[DEBUG smartUpdate] Working dir changes:', workingDirChanges.length)
+        console.log('[DEBUG smartUpdate] Total unique changes:', allChanges.length)
+
+        // 4. 手动处理这些变更（不调用 incrementalUpdate，避免重复获取）
+        result = await this.processChanges(allChanges, options.maxDepth || 3)
       } else {
         // 没有新的提交，只检查工作目录的变更
         result = await this.incrementalUpdate({
