@@ -156,8 +156,16 @@ export class IncrementalUpdater {
     }
 
     // 跳过测试文件（可选）
-    const testPatterns = ['.test.', '.spec.', '__tests__', '__mocks__']
-    if (testPatterns.some(pattern => filePath.includes(pattern))) {
+    // 注意：只匹配文件名，不匹配目录名
+    const fileName = path.basename(filePath)
+    const testPatterns = ['.test.', '.spec.', '_test.', '_spec.']
+    if (testPatterns.some(pattern => fileName.includes(pattern))) {
+      return false
+    }
+
+    // 跳过特定的测试目录
+    const testDirs = ['__tests__', '__mocks__']
+    if (testDirs.some(dir => filePath.includes(`/${dir}/`))) {
       return false
     }
 
