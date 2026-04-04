@@ -61,9 +61,9 @@ export class CallGraphBuilder {
   }
 
   /**
-   * 处理单个文件
+   * 处理单个文件（公开方法，供增量更新使用）
    */
-  private async processFile(filePath: string, maxDepth: number): Promise<{
+  async processFile(filePath: string, maxDepth: number): Promise<{
     functionsProcessed: number
     callsFound: number
   }> {

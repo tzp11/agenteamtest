@@ -4,12 +4,14 @@ import { getCwd } from '../../utils/cwd.js'
 import { TestGraphDatabase } from './database.js'
 import { GitDiffDetector } from './gitDiffDetector.js'
 import { CallGraphBuilder } from './callGraphBuilder.js'
+import { IncrementalUpdater } from './incrementalUpdater.js'
 
 const inputSchema = z.strictObject({
   operation: z
     .enum([
       'init',
       'buildCallGraph',
+      'incrementalUpdate',
       'findAffectedTests',
       'findUncoveredFunctions',
       'findHighRiskFunctions',
@@ -85,6 +87,7 @@ export const TestGraphTool = buildTool({
 Supported Operations:
 - init: Initialize the database
 - buildCallGraph: Scan project and build function call graph using LSPTool
+- incrementalUpdate: Update only changed files since last scan (smart)
 - findAffectedTests: Find tests affected by a function change
 - findUncoveredFunctions: Find functions without test coverage
 - findHighRiskFunctions: Find high-complexity uncovered functions
@@ -95,11 +98,10 @@ Supported Operations:
 
 Examples:
 - Initialize: {operation: "init"}
-- Build call graph: {operation: "buildCallGraph", filePatterns: ["**/*.ts"]}
+- Build call graph: {operation: "buildCallGraph"}
+- Incremental update: {operation: "incrementalUpdate"}
 - Find affected tests: {operation: "findAffectedTests", functionName: "authenticateUser"}
-- Find uncovered: {operation: "findUncoveredFunctions", minComplexity: 10}
-- Get stats: {operation: "getCoverageStats"}
-- Detect changes: {operation: "detectChanges", fromCommit: "abc123"}`
+- Find uncovered: {operation: "findUncoveredFunctions", minComplexity: 10}`
   },
 
   async prompt() {
@@ -163,6 +165,26 @@ Operations:
               message: 'Call graph built successfully',
               functionsProcessed: result.functionsProcessed,
               callsFound: result.callsFound,
+              errors: result.errors.length > 0 ? result.errors : undefined
+            }
+          }
+        }
+
+        case 'incrementalUpdate': {
+          const updater = new IncrementalUpdater(db, gitDetector, cwd)
+
+          const result = await updater.smartUpdate({
+            maxDepth: args.maxDepth || 3
+          })
+
+          return {
+            data: {
+              message: 'Incremental update completed',
+              filesProcessed: result.filesProcessed,
+              functionsUpdated: result.functionsUpdated,
+              callsUpdated: result.callsUpdated,
+              filesDeleted: result.filesDeleted,
+              timeSinceLastScan: result.timeSinceLastScan,
               errors: result.errors.length > 0 ? result.errors : undefined
             }
           }
