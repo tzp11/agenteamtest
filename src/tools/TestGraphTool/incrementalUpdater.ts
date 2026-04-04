@@ -12,11 +12,38 @@ export class IncrementalUpdater {
   private db: TestGraphDatabase
   private gitDetector: GitDiffDetector
   private cwd: string
+  private gitRoot: string | null = null
 
   constructor(db: TestGraphDatabase, gitDetector: GitDiffDetector, cwd: string) {
     this.db = db
     this.gitDetector = gitDetector
     this.cwd = cwd
+  }
+
+  /**
+   * 获取 Git 仓库根目录
+   */
+  private async getGitRoot(): Promise<string> {
+    if (this.gitRoot) {
+      return this.gitRoot
+    }
+
+    try {
+      const { exec } = await import('../../utils/Shell.js')
+      const command = await exec(
+        `cd "${this.cwd}" && git rev-parse --show-toplevel`,
+        new AbortController().signal,
+        'bash'
+      )
+      const result = await command.result
+      this.gitRoot = result.stdout.trim()
+      return this.gitRoot
+    } catch (error) {
+      console.error('[DEBUG incrementalUpdate] Failed to get git root:', error)
+      // 如果获取失败，使用 cwd
+      this.gitRoot = this.cwd
+      return this.gitRoot
+    }
   }
 
   /**
@@ -41,6 +68,11 @@ export class IncrementalUpdater {
     let filesDeleted = 0
 
     try {
+      // 0. 获取 Git 仓库根目录
+      const gitRoot = await this.getGitRoot()
+      console.log('[DEBUG incrementalUpdate] Git root:', gitRoot)
+      console.log('[DEBUG incrementalUpdate] CWD:', this.cwd)
+
       // 1. 获取变更的文件列表
       const changes = fromCommit
         ? await this.gitDetector.getChangesBetweenCommits(fromCommit, 'HEAD')
@@ -52,7 +84,8 @@ export class IncrementalUpdater {
       // 2. 处理每个变更的文件
       for (const change of changes) {
         try {
-          const filePath = path.join(this.cwd, change.filePath)
+          // Git 返回的路径是相对于仓库根目录的，需要使用 gitRoot 而不是 cwd
+          const filePath = path.join(gitRoot, change.filePath)
           console.log('[DEBUG incrementalUpdate] Processing change:', change.filePath)
           console.log('[DEBUG incrementalUpdate] Full path:', filePath)
           console.log('[DEBUG incrementalUpdate] Change type:', change.changeType)
