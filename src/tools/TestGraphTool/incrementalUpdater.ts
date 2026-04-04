@@ -211,6 +211,7 @@ export class IncrementalUpdater {
    */
   async smartUpdate(options: {
     maxDepth?: number
+    filePatterns?: string[]
   } = {}): Promise<{
     filesProcessed: number
     functionsUpdated: number
@@ -247,7 +248,8 @@ export class IncrementalUpdater {
       // 首次扫描，执行完整扫描
       const builder = new CallGraphBuilder(this.db, this.cwd)
       const fullResult = await builder.buildCallGraph({
-        maxDepth: options.maxDepth
+        maxDepth: options.maxDepth,
+        filePatterns: options.filePatterns
       })
 
       return {

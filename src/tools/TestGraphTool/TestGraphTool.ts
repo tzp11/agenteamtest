@@ -175,7 +175,8 @@ Operations:
           const updater = new IncrementalUpdater(db, gitDetector, cwd)
 
           const result = await updater.smartUpdate({
-            maxDepth: args.maxDepth || 3
+            maxDepth: args.maxDepth || 3,
+            filePatterns: args.filePatterns
           })
 
           return {
