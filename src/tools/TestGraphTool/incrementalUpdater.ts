@@ -53,7 +53,7 @@ export class IncrementalUpdater {
 
           if (change.changeType === 'deleted') {
             // 删除文件：从数据库中移除相关函数
-            await this.handleDeletedFile(change.filePath)
+            await this.handleDeletedFile(filePath)
             filesDeleted++
           } else if (change.changeType === 'added' || change.changeType === 'modified') {
             // 新增或修改文件：重新扫描
