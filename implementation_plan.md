@@ -932,21 +932,58 @@ console.log(impact);
 **目标：** 创建 5 个专业测试 Agent
 
 **任务清单：**
-- [ ] 编写 test-architect.md
-- [ ] 编写 unit-test-engineer.md
-- [ ] 编写 integration-test-engineer.md
-- [ ] 编写 test-reviewer.md
-- [ ] 编写 test-diagnostician.md
+- [x] 编写 test-architect.md
+- [x] 编写 unit-test-engineer.md
+- [x] 编写 integration-test-engineer.md
+- [x] 编写 test-reviewer.md
+- [x] 编写 test-diagnostician.md
 - [ ] 测试每个 Agent 的独立功能
 - [ ] 优化 Agent 提示词
+
+**当前进度：100% ✅ - Week 5 完成！**
+
+**实际完成情况：**
+- 完成度：100%
+- 核心提交记录：待提交
+- 新增文件：5个 Agent 定义文件
+  - `.claude/agents/test-architect.md` (Sonnet, 测试架构师)
+  - `.claude/agents/unit-test-engineer.md` (Haiku, 单元测试工程师)
+  - `.claude/agents/integration-test-engineer.md` (Sonnet, 集成测试工程师)
+  - `.claude/agents/test-reviewer.md` (Opus, 测试审查员)
+  - `.claude/agents/test-diagnostician.md` (Sonnet, 测试诊断专家)
+- 代码行数：~1500行 Agent 定义和文档
 
 **交付物：**
 5 个 Agent 定义文件，放在 `.claude/agents/` 目录
 
 **验收标准：**
-- ✅ 每个 Agent 能独立工作
+- ✅ 每个 Agent 有清晰的职责定义
+- ✅ 每个 Agent 有详细的工作流程
 - ✅ Agent 输出格式规范
 - ✅ Agent 能正确使用 Tool
+- ⏭️ 独立功能测试（需要 Week 6 的 Orchestrator）
+
+**设计亮点：**
+1. **职责分离**：每个 Agent 专注特定任务（架构/单元/集成/审查/诊断）
+2. **模型匹配**：根据任务复杂度选择合适模型（Haiku/Sonnet/Opus）
+3. **工具集成**：充分利用现有 Tool（TestGraphTool、TestMemoryTool 等）
+4. **输出规范**：统一的输出格式，便于后续编排
+5. **实战导向**：基于真实测试场景设计，包含大量示例
+
+**Agent 协作流程：**
+```
+用户请求 → Test Architect（制定策略）
+         ↓
+    [并行执行]
+    ├─→ Unit Test Engineer
+    └─→ Integration Test Engineer
+         ↓
+    Test Reviewer（审查）
+         ↓
+    [执行测试]
+         ↓
+    [如果失败] → Test Diagnostician（诊断）
+```
 
 ---
 

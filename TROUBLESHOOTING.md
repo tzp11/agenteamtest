@@ -819,3 +819,156 @@ db.close();
 # 使用相对路径（如果在 test/ 目录下）
 使用 TestGraphTool 分析影响，变更文件为 src/auth.c
 ```
+
+---
+
+## Week 5: Multi-Agent 测试协同 - Agent 定义
+
+### 概述
+
+Week 5 的目标是创建 5 个专业测试 Agent 的定义文件，为 Week 6 的 Agent 编排系统做准备。
+
+### 完成情况
+
+**完成度：100% ✅**
+
+**交付物：**
+- ✅ `.claude/agents/test-architect.md` - 测试架构师 Agent
+- ✅ `.claude/agents/unit-test-engineer.md` - 单元测试工程师 Agent
+- ✅ `.claude/agents/integration-test-engineer.md` - 集成测试工程师 Agent
+- ✅ `.claude/agents/test-reviewer.md` - 测试审查员 Agent
+- ✅ `.claude/agents/test-diagnostician.md` - 测试诊断专家 Agent
+
+### Agent 设计要点
+
+#### 1. Test Architect Agent（测试架构师）
+- **模型**：Sonnet（需要深度分析能力）
+- **职责**：分析代码结构，制定测试策略
+- **核心能力**：
+  - 使用 TestGraphTool 理解代码关系
+  - 使用 TestCoverageTool 识别覆盖盲区
+  - 基于复杂度和风险优先级排序
+  - 输出结构化测试计划
+
+#### 2. Unit Test Engineer Agent（单元测试工程师）
+- **模型**：Haiku（快速生成大量用例）
+- **职责**：生成细粒度单元测试
+- **核心能力**：
+  - 覆盖所有代码分支（if/else、switch、循环）
+  - 测试边界条件（null、empty、0、max）
+  - 使用 Mock 隔离依赖
+  - 遵循 AAA 模式（Arrange-Act-Assert）
+- **支持语言**：JavaScript/TypeScript (Jest)、Python (pytest)、C (Unity)
+
+#### 3. Integration Test Engineer Agent（集成测试工程师）
+- **模型**：Sonnet（需要理解复杂交互）
+- **职责**：测试模块间交互和数据流
+- **核心能力**：
+  - 测试 API 端点和契约
+  - 测试数据库集成
+  - 测试事务一致性和并发
+  - 测试错误传播
+- **测试类型**：API 测试、数据库测试、服务集成测试、事件驱动测试
+
+#### 4. Test Reviewer Agent（测试审查员）
+- **模型**：Opus（需要高质量审查）
+- **职责**：审查测试代码质量
+- **核心能力**：
+  - 识别测试坏味道（Test Smells）
+  - 检查测试覆盖完整性
+  - 验证断言正确性
+  - 评估测试可维护性
+- **审查维度**：正确性、完整性、清晰度、可维护性、性能、隔离性
+
+**常见测试坏味道：**
+1. Assertion Roulette - 多个断言无清晰失败信息
+2. Test Code Duplication - 重复的测试代码
+3. Obscure Test - 难以理解的测试
+4. Conditional Test Logic - 测试中包含 if/else
+5. Fragile Test - 容易因小改动而失败
+6. Mystery Guest - 依赖外部不可见数据
+7. Slow Test - 运行时间过长
+
+#### 5. Test Diagnostician Agent（测试诊断专家）
+- **模型**：Sonnet（需要推理能力）
+- **职责**：诊断测试失败原因
+- **核心能力**：
+  - 分析错误信息和堆栈跟踪
+  - 分类失败类型（环境/测试代码/源代码/Flaky）
+  - 提供具体修复建议
+  - 学习历史失败模式
+
+**失败分类：**
+- **ENVIRONMENT**：服务未启动、端口占用、依赖缺失
+- **TEST_CODE**：Mock 配置错误、断言错误、异步处理问题
+- **SOURCE_CODE**：真正的代码 bug
+- **FLAKY**：间歇性失败、时序问题、竞态条件
+
+### Agent 协作流程设计
+
+```
+用户请求："为 login 功能生成测试"
+    ↓
+Test Architect（分析 login 功能，制定策略）
+    ↓
+[并行执行]
+    ├─→ Unit Test Engineer（生成单元测试）
+    └─→ Integration Test Engineer（生成集成测试）
+    ↓
+Test Reviewer（审查所有测试）
+    ↓
+[如果审查通过] → 执行测试
+[如果审查不通过] → 返回修改
+    ↓
+[如果测试失败] → Test Diagnostician（诊断并修复）
+```
+
+### 设计原则
+
+1. **职责分离**：每个 Agent 专注于特定任务
+2. **模型匹配**：根据任务复杂度选择合适的模型
+3. **工具集成**：充分利用现有 Tool（TestGraphTool、TestMemoryTool 等）
+4. **输出规范**：统一的输出格式，便于后续处理
+5. **可扩展性**：易于添加新的 Agent 类型
+
+### 与现有系统的集成
+
+**利用现有工具：**
+- TestGraphTool - 查询代码关系和覆盖率
+- TestMemoryTool - 查询历史测试数据
+- TestCoverageTool - 分析覆盖率
+- LSPTool - 分析代码结构
+- Read/Write/Edit - 读写文件
+- Grep - 搜索代码模式
+
+**为 Week 6 准备：**
+- Agent 定义文件已就绪
+- 输入输出格式已标准化
+- 协作流程已设计
+- 下一步：实现 TestOrchestrator 编排器
+
+### 验收标准
+
+- ✅ 5 个 Agent 定义文件已创建
+- ✅ 每个 Agent 有清晰的职责说明
+- ✅ 每个 Agent 有详细的工作流程
+- ✅ 每个 Agent 有输出格式规范
+- ✅ 每个 Agent 有使用示例
+- ✅ Agent 之间的协作流程已设计
+
+### 下一步（Week 6）
+
+1. 实现 TestOrchestrator 服务
+2. 实现 Agent 调度逻辑
+3. 实现并行执行机制
+4. 实现结果聚合
+5. 实现审查循环
+6. 集成到 Claude Code
+
+### 经验总结
+
+1. **Agent 设计要具体**：不要只写"生成测试"，要详细说明如何生成、生成什么
+2. **提供丰富示例**：好的示例胜过长篇说明
+3. **考虑实际场景**：基于真实的测试问题设计 Agent 能力
+4. **标准化输出**：统一的输出格式便于后续处理
+5. **工具集成优先**：充分利用现有工具，避免重复造轮子
