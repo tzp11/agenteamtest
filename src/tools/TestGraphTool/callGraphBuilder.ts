@@ -1,6 +1,7 @@
 import type { TestGraphDatabase, FunctionMetadata, FunctionCall } from './database.js'
 import { getCwd } from '../../utils/cwd.js'
 import { LSPTool } from '../LSPTool/LSPTool.js'
+import { parseCFunctions, parseCFunctionCalls } from './cParser.js'
 import fs from 'node:fs'
 import path from 'node:path'
 
@@ -67,10 +68,77 @@ export class CallGraphBuilder {
     functionsProcessed: number
     callsFound: number
   }> {
+    const language = this.detectLanguage(filePath)
+
+    // 对于 C/C++ 文件，使用简单解析器
+    if (language === 'c' || language === 'cpp') {
+      return this.processCFile(filePath)
+    }
+
+    // 对于其他语言，使用 LSPTool
+    return this.processFileWithLSP(filePath, maxDepth)
+  }
+
+  /**
+   * 使用简单解析器处理 C 文件
+   */
+  private async processCFile(filePath: string): Promise<{
+    functionsProcessed: number
+    callsFound: number
+  }> {
     let functionsProcessed = 0
     let callsFound = 0
 
-    // 1. 使用 LSPTool 获取文件中的所有符号（函数）
+    try {
+      const functions = parseCFunctions(filePath)
+
+      for (const func of functions) {
+        const functionId = this.db.upsertFunction({
+          name: func.name,
+          filePath,
+          startLine: func.startLine,
+          endLine: func.endLine,
+          complexity: 0,
+          language: this.detectLanguage(filePath),
+          signature: func.signature,
+          isTest: this.isTestFunction(func.name),
+          isExported: true,
+          lastModified: Date.now() / 1000
+        })
+
+        functionsProcessed++
+
+        const calls = parseCFunctionCalls(filePath, func.name)
+        for (const call of calls) {
+          const callee = this.db.findFunction(call.calleeName)
+          if (callee && callee.id) {
+            this.db.insertFunctionCall({
+              callerId: functionId,
+              calleeId: callee.id,
+              callLine: call.line,
+              isDirect: true
+            })
+            callsFound++
+          }
+        }
+      }
+    } catch (error) {
+      console.error(`Error processing C file ${filePath}:`, error)
+    }
+
+    return { functionsProcessed, callsFound }
+  }
+
+  /**
+   * 使用 LSPTool 处理文件
+   */
+  private async processFileWithLSP(filePath: string, maxDepth: number): Promise<{
+    functionsProcessed: number
+    callsFound: number
+  }> {
+    let functionsProcessed = 0
+    let callsFound = 0
+
     const symbolsResult = await LSPTool.call(
       {
         operation: 'documentSymbol',
@@ -89,33 +157,27 @@ export class CallGraphBuilder {
 
     const symbols = symbolsResult.data.symbols || []
 
-    // 2. 处理每个函数符号
     for (const symbol of symbols) {
       if (this.isFunctionSymbol(symbol)) {
-        // 插入函数到数据库
         const functionId = this.db.upsertFunction({
           name: symbol.name,
           filePath,
           startLine: symbol.range.start.line,
           endLine: symbol.range.end.line,
-          complexity: 0, // TODO: 计算圈复杂度
+          complexity: 0,
           language: this.detectLanguage(filePath),
           signature: symbol.detail || undefined,
           isTest: this.isTestFunction(symbol.name),
-          isExported: true, // TODO: 检测是否导出
+          isExported: true,
           lastModified: Date.now() / 1000
         })
 
         functionsProcessed++
 
-        // 3. 分析函数的调用关系
         try {
           const calls = await this.analyzeFunctionCalls(filePath, symbol, maxDepth)
-
           for (const call of calls) {
-            // 查找被调用的函数
             const callee = this.db.findFunction(call.calleeName, call.calleeFilePath)
-
             if (callee && callee.id) {
               this.db.insertFunctionCall({
                 callerId: functionId,
@@ -127,7 +189,6 @@ export class CallGraphBuilder {
             }
           }
         } catch (error) {
-          // 忽略单个函数的错误，继续处理其他函数
           console.error(`Error analyzing calls for ${symbol.name}:`, error)
         }
       }
@@ -272,13 +333,51 @@ export class CallGraphBuilder {
    * 查找匹配的文件
    */
   private async findFiles(patterns: string[]): Promise<string[]> {
-    // 简化实现：只扫描 src 目录
-    const srcDir = path.join(this.cwd, 'src')
-    if (!fs.existsSync(srcDir)) {
-      return []
+    const files: string[] = []
+    const supportedExtensions = new Set<string>()
+    const scanDirs = new Set<string>()
+
+    // 从 patterns 中提取目录和扩展名
+    for (const pattern of patterns) {
+      const extMatch = pattern.match(/\*\.(\w+)$/)
+      if (extMatch) {
+        supportedExtensions.add(`.${extMatch[1]}`)
+      }
+
+      const dirMatch = pattern.match(/^(.+?)\/\*\*/)
+      if (dirMatch) {
+        const dir = path.join(this.cwd, dirMatch[1])
+        if (fs.existsSync(dir)) {
+          scanDirs.add(dir)
+        }
+      } else if (pattern.startsWith('**/')) {
+        scanDirs.add(this.cwd)
+      } else if (!pattern.includes('/')) {
+        // 单个文件名，从当前目录查找
+        const filePath = path.join(this.cwd, pattern)
+        if (fs.existsSync(filePath)) {
+          files.push(filePath)
+        }
+      }
     }
 
-    const files: string[] = []
+    // 默认扫描 src 目录
+    if (scanDirs.size === 0) {
+      const srcDir = path.join(this.cwd, 'src')
+      if (fs.existsSync(srcDir)) {
+        scanDirs.add(srcDir)
+      } else {
+        scanDirs.add(this.cwd)
+      }
+    }
+
+    // 默认扩展名
+    if (supportedExtensions.size === 0) {
+      supportedExtensions.add('.ts')
+      supportedExtensions.add('.tsx')
+      supportedExtensions.add('.js')
+      supportedExtensions.add('.jsx')
+    }
 
     const scanDir = (dir: string) => {
       const entries = fs.readdirSync(dir, { withFileTypes: true })
@@ -287,21 +386,22 @@ export class CallGraphBuilder {
         const fullPath = path.join(dir, entry.name)
 
         if (entry.isDirectory()) {
-          // 跳过 node_modules 等目录
-          if (!['node_modules', '.git', 'dist', 'build'].includes(entry.name)) {
+          if (!['node_modules', '.git', 'dist', 'build', '.claude'].includes(entry.name)) {
             scanDir(fullPath)
           }
         } else if (entry.isFile()) {
-          // 检查文件扩展名
           const ext = path.extname(entry.name)
-          if (['.ts', '.tsx', '.js', '.jsx'].includes(ext)) {
+          if (supportedExtensions.has(ext)) {
             files.push(fullPath)
           }
         }
       }
     }
 
-    scanDir(srcDir)
+    for (const dir of scanDirs) {
+      scanDir(dir)
+    }
+
     return files
   }
 
