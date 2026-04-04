@@ -775,41 +775,80 @@ await TestCoverageTool.call({
 - [x] 安装 better-sqlite3 依赖
 - [x] 注册工具到 tools.ts
 - [x] 创建测试脚本并验证功能
+- [x] 修复 Git 变更检测的 changeType 判断错误
+- [x] 修复增量更新的路径拼接问题
+- [x] 修复 smartUpdate 忽略工作目录未提交变更的问题
 
 **当前进度：100% ✅ - Week 3 完成！**
 
 **实际完成情况：**
 - 完成度：100%
-- 提交记录：
+- 核心提交记录：
   - `3209b3b` feat: 实现增量更新机制并完成 Week 3 所有任务
   - `bba947e` chore: 添加 better-sqlite3 依赖和测试脚本
   - `e9f201f` feat: 添加调用图构建功能和注册 TestGraphTool
   - `c8fd3fb` feat: 实现 TestGraphTool - SQLite 图谱和 Git Diff 监控
+- Bug 修复提交：
+  - `ae7e9dc` fix: 修复 Git 变更检测的 changeType 判断逻辑
+  - `e3a66e9` fix: 修复 shouldProcessFile 过滤逻辑
+  - `a2f7206` fix: 修复增量更新的路径拼接问题
+  - `289aea6` fix: 修复 smartUpdate 忽略工作目录未提交变更的问题
 - 新增文件：7个
 - 代码行数：~2000行
 
+**实现方式调整：**
+1. **Git 变更检测**：结合 `git status --porcelain` 和 `git diff --numstat`，准确区分文件级别状态（added/modified/deleted）
+2. **路径处理**：使用 `git rev-parse --show-toplevel` 获取仓库根目录，解决子目录运行时的路径问题
+3. **增量更新策略**：同时检查已提交变更和工作目录未提交变更，避免遗漏
+
 **交付物：**
 ```typescript
-// 使用示例
+// 1. 初始化和构建
+await TestGraphTool.call({ operation: 'init' })
+await TestGraphTool.call({ 
+  operation: 'buildCallGraph',
+  filePatterns: ['**/*.c', '**/*.ts']
+})
+
+// 2. 增量更新（智能检测变更）
+await TestGraphTool.call({ 
+  operation: 'incrementalUpdate',
+  filePatterns: ['**/*.c']
+})
+
+// 3. 查询分析
 await TestGraphTool.call({
   operation: 'findAffectedTests',
   functionName: 'authenticateUser'
-});
-// 返回：受影响的测试列表
+})
 
 await TestGraphTool.call({
   operation: 'findUncoveredFunctions',
   minComplexity: 10
-});
-// 返回：未测试的高复杂度函数
+})
+
+await TestGraphTool.call({
+  operation: 'getCoverageStats'
+})
+
+// 4. Git 变更检测
+await TestGraphTool.call({
+  operation: 'detectChanges'
+})
 ```
 
 **验收标准：**
 - ✅ SQLite 数据库正常工作
-- ✅ 能检测 git diff 变更
+- ✅ 能检测 git diff 变更（准确识别 modified/added/deleted）
 - ✅ 能构建函数调用图
-- ✅ 能查询受影响的测试
+- ✅ 能查询受影响的测试（需要测试覆盖数据）
 - ✅ 能发现未覆盖函数
+- ✅ 增量更新能正确处理变更文件
+- ✅ 支持在任意子目录运行
+
+**已知限制：**
+- 测试覆盖率数据需要手动标记或通过 Week 4 的测试执行器收集
+- LSP 解析依赖代码格式（函数定义需要独立成行）
 
 ---
 
