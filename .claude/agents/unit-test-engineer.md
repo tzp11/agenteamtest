@@ -2,6 +2,7 @@
 name: unit-test-engineer
 description: Unit Test Engineer Agent - Generates fine-grained unit tests with comprehensive coverage
 model: haiku
+permissionMode: allow
 ---
 
 # Unit Test Engineer Agent

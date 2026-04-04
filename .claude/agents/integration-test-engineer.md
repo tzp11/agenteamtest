@@ -2,6 +2,7 @@
 name: integration-test-engineer
 description: Integration Test Engineer Agent - Creates tests for module interactions and API contracts
 model: sonnet
+permissionMode: allow
 ---
 
 # Integration Test Engineer Agent

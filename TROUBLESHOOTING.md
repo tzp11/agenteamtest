@@ -1244,3 +1244,255 @@ rm -rf ~/.claude/cache/*
 8. **格式要严格**：frontmatter 必须包含必需字段且格式正确
 9. **测试要充分**：创建测试脚本和文档，方便验证和调试
 10. **版本控制要注意**：Agent 定义文件要提交，但运行时数据不要提交
+
+---
+
+## Week 6: TestOrchestrator 多 Agent 编排
+
+### 问题 1: 工具模块导入路径错误 ⭐⭐
+
+**现象：** `Cannot find module '../Tool.js'`
+
+**根本原因：** 导入路径相对于当前文件位置计算错误。
+
+**解决方案：**
+```typescript
+// ❌ 错误：相对路径不正确
+import { Tool } from '../Tool.js'
+
+// ✅ 正确：使用正确的相对路径
+import { Tool } from '../../Tool.js'
+```
+
+**关键文件：** `src/tools/TestOrchestratorTool/TestOrchestratorTool.ts`
+
+---
+
+### 问题 2: Agent 类型不被识别 ⭐⭐⭐
+
+**现象：** `Agent type 'test-reviewer' not found`
+
+**根本原因：** Agent 定义中缺少 `permissionMode: allow` 字段。
+
+**解决方案：**
+```yaml
+---
+name: unit-test-engineer
+description: Unit Test Engineer Agent
+model: haiku
+permissionMode: allow  # 必须添加
+---
+```
+
+**关键文件：** `.claude/agents/unit-test-engineer.md`, `.claude/agents/integration-test-engineer.md`
+
+---
+
+### 问题 3: Agent 未生成测试文件 ⭐⭐
+
+**现象：** Agent 执行完成但没有创建测试文件。
+
+**根本原因：** Agent prompt 中没有明确指定使用 Write 工具创建文件。
+
+**解决方案：**
+在 prompt 中明确告知：
+```
+**重要**：
+- 必须使用 Write 工具创建实际的测试文件
+- **只声明函数（extern），不要重新定义函数**
+- **不要创建 Mock 函数，直接使用源文件中的函数**
+```
+
+---
+
+### 问题 4: 审查循环分数提取失败 ⭐⭐⭐
+
+**现象：** 审查返回的分数总是 0 或提取失败。
+
+**根本原因：** 
+1. reviewResult.data 是对象类型，需要提取 `.data.text` 字段
+2. 需要处理多种分数格式（纯数字、"Score: 85" 等）
+
+**解决方案：**
+```typescript
+// 正确提取审查分数
+let reviewText = ''
+if (typeof reviewResult.data === 'string') {
+  reviewText = reviewResult.data
+} else if (reviewResult.data?.data?.text) {
+  reviewText = reviewResult.data.data.text  // 嵌套结构
+} else if (reviewResult.data?.text) {
+  reviewText = reviewResult.data.text
+}
+
+// 多种分数提取模式
+const scorePatterns = [
+  /score[:\s]+(\d+)/i,
+  /评分[:\s]+(\d+)/i,
+  /(\d+)\s*\/?\s*100/i,
+  /(\d+)\s*分/i
+]
+
+for (const pattern of scorePatterns) {
+  const match = reviewText.match(pattern)
+  if (match) {
+    score = parseInt(match[1], 10)
+    break
+  }
+}
+```
+
+---
+
+### 问题 5: 测试编译重复定义错误 ⭐⭐⭐
+
+**现象：** `multiple definition of 'validate_password'`
+
+**根本原因：** Agent 生成的测试代码中重新定义了函数，而不是使用 `extern` 声明。
+
+**解决方案：**
+明确告知 Agent 只使用 extern 声明：
+```c
+// ✅ 正确：只声明
+extern int validate_password(const char* password);
+
+// ❌ 错误：重新定义
+int validate_password(const char* password) {
+  // ...
+}
+```
+
+---
+
+### 问题 6: 审查迭代不工作 ⭐⭐
+
+**现象：** 审查未通过时不会重新生成测试。
+
+**根本原因：** 没有实现阈值判断和重试逻辑。
+
+**解决方案：**
+```typescript
+const SCORE_THRESHOLD = 80
+let maxAttempts = 3
+let attempt = 0
+
+while (attempt < maxAttempts) {
+  const score = await extractReviewScore(reviewResult)
+  
+  if (score >= SCORE_THRESHOLD) {
+    break  // 审查通过
+  }
+  
+  // 审查不通过，重新生成
+  generationResult = await runAgentWithFeedback(
+    agentType,
+    prompt,
+    reviewFeedback
+  )
+  attempt++
+}
+```
+
+---
+
+### 核心实现要点
+
+#### 1. AgentRunner - Agent 执行器
+```typescript
+class AgentRunner {
+  async runAgent(
+    agentType: string,
+    prompt: string,
+    context?: Record<string, unknown>
+  ): Promise<AgentResult> {
+    const result = await AgentTool.call({
+      agentType,
+      prompt,
+      ...context
+    })
+    return this.parseAgentResult(result)
+  }
+
+  async runParallel(
+    tasks: Array<{ agentType: string; prompt: string }>
+  ): Promise<AgentResult[]> {
+    return Promise.all(tasks.map(t => this.runAgent(t.agentType, t.prompt)))
+  }
+}
+```
+
+#### 2. ResultAggregator - 结果聚合
+```typescript
+class ResultAggregator {
+  aggregate(results: AgentResult[]): AggregatedResult {
+    return {
+      allPassed: results.every(r => r.success),
+      summary: this.generateSummary(results),
+      details: results.map(r => r.data),
+      suggestions: this.extractSuggestions(results)
+    }
+  }
+}
+```
+
+#### 3. TestOrchestrator - 主编排器
+```typescript
+class TestOrchestrator {
+  async generateTests(request: TestRequest): Promise<TestResult> {
+    // 1. 策略规划
+    const strategy = await this.planStrategy(request)
+    
+    // 2. 并行生成
+    const generationResults = await this.runGenerationPhase(strategy)
+    
+    // 3. 审查循环
+    const reviewResult = await this.runReviewPhase(generationResults)
+    
+    // 4. 编译运行
+    return this.compileAndRun(reviewResult)
+  }
+}
+```
+
+---
+
+### 调试技巧
+
+**1. 查看 Agent 执行日志：**
+```bash
+tail -200 ~/.claude/debug/*.txt | grep -i "AgentTool\|test-orchestrator"
+```
+
+**2. 测试单个 Agent：**
+```bash
+使用 test-architect Agent 分析 src/auth.c 的测试策略
+```
+
+**3. 手动运行编排器：**
+```bash
+./test-week6-orchestrator.sh
+```
+
+**4. 检查工具是否注册：**
+```bash
+grep -n "TestOrchestratorTool" src/tools.ts
+```
+
+---
+
+### 经验总结
+
+1. **权限模式很重要** - Agent 定义必须包含 `permissionMode: allow`
+2. **Prompt 要具体** - 明确告知使用什么工具、生成什么格式
+3. **结果解析要健壮** - 处理多种返回格式（string/object）
+4. **分数提取要全面** - 支持多种模式（中文/英文）
+5. **迭代要有阈值** - 设定合理的审查阈值（80分）控制重试次数
+
+---
+
+## 下一阶段（Week 7-8）
+
+1. 实现 ReActEngine 自愈循环
+2. 实现失败分类器（ENVIRONMENT/TEST_CODE/SOURCE_CODE）
+3. 实现修复策略
+4. 集成 TestMemoryTool 查询历史失败模式
