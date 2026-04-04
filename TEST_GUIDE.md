@@ -181,12 +181,12 @@ cd /home/tzp/work/agent/my_test
 
 1. **初始化数据库**
    ```
-   使用 TestGraphTool 初始化数据库
+   使用 TestGraphTool 初始化数据库,文件模式为 ["**/*.c"]   
    ```
 
 2. **构建调用图**
    ```
-   使用 TestGraphTool 构建调用图
+   使用 TestGraphTool 构建调用图,文件模式为 ["**/*.c"]
    ```
    
    等待完成（可能需要 2-5 分钟）
