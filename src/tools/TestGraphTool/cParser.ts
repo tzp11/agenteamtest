@@ -89,11 +89,22 @@ export function parseCFunctionCalls(filePath: string, functionName: string): CFu
   const lines = content.split('\n')
   const calls: CFunctionCall[] = []
 
+  // 首先找到该函数的起始和结束行
+  const functions = parseCFunctions(filePath)
+  const targetFunction = functions.find(f => f.name === functionName)
+
+  if (!targetFunction) {
+    return calls
+  }
+
+  // 只扫描该函数内部的代码
+  const startLine = targetFunction.startLine - 1 // 转换为 0-based index
+  const endLine = targetFunction.endLine - 1
+
   // 匹配函数调用的正则表达式
-  // 匹配: 函数名(
   const callPattern = /(\w+)\s*\(/g
 
-  for (let i = 0; i < lines.length; i++) {
+  for (let i = startLine; i <= endLine; i++) {
     const line = lines[i]
 
     // 跳过注释和预处理指令
@@ -101,13 +112,19 @@ export function parseCFunctionCalls(filePath: string, functionName: string): CFu
       continue
     }
 
+    // 跳过函数定义行（包含函数名和参数列表的那一行）
+    if (i === startLine) {
+      continue
+    }
+
     let match
+    callPattern.lastIndex = 0 // 重置正则表达式
     while ((match = callPattern.exec(line)) !== null) {
       const calleeName = match[1]
 
       // 跳过关键字和常见的非函数调用
       const keywords = ['if', 'while', 'for', 'switch', 'return', 'sizeof', 'typeof']
-      if (!keywords.includes(calleeName)) {
+      if (!keywords.includes(calleeName) && calleeName !== functionName) {
         calls.push({
           callerName: functionName,
           calleeName,
