@@ -769,14 +769,24 @@ await TestCoverageTool.call({
 - [x] 创建 TestGraphTool 框架
 - [x] 实现数据库初始化和迁移
 - [x] 实现 Git Diff 变更检测
-- [ ] 使用 LSPTool 构建调用图 ⚠️ **关键任务，未完成**
-- [x] 实现核心查询（影响分析、盲区发现）- 数据库查询已实现
-- [ ] 实现增量更新机制
-- [ ] 安装 better-sqlite3 依赖
-- [ ] 注册工具到 tools.ts
-- [ ] 创建测试脚本并验证功能
+- [x] 使用 LSPTool 构建调用图
+- [x] 实现核心查询（影响分析、盲区发现）
+- [x] 实现增量更新机制
+- [x] 安装 better-sqlite3 依赖
+- [x] 注册工具到 tools.ts
+- [x] 创建测试脚本并验证功能
 
-**当前进度：40% - 基础架构完成，核心功能待实现**
+**当前进度：100% ✅ - Week 3 完成！**
+
+**实际完成情况：**
+- 完成度：100%
+- 提交记录：
+  - `3209b3b` feat: 实现增量更新机制并完成 Week 3 所有任务
+  - `bba947e` chore: 添加 better-sqlite3 依赖和测试脚本
+  - `e9f201f` feat: 添加调用图构建功能和注册 TestGraphTool
+  - `c8fd3fb` feat: 实现 TestGraphTool - SQLite 图谱和 Git Diff 监控
+- 新增文件：7个
+- 代码行数：~2000行
 
 **交付物：**
 ```typescript
