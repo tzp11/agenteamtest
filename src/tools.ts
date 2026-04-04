@@ -248,6 +248,7 @@ export function getAllBaseTools(): Tools {
     SimpleTestTool,
     TestMemoryTool,
     TestCoverageTool,
+    TestGraphTool,
     ListMcpResourcesTool,
     ReadMcpResourceTool,
     // Include ToolSearchTool when tool search might be enabled (optimistic check)

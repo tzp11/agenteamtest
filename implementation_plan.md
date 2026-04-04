@@ -750,13 +750,18 @@ await TestCoverageTool.call({
 **目标：** 构建轻量级代码关系图谱
 
 **任务清单：**
-- [ ] 设计 SQLite Schema（functions, calls, coverage）
-- [ ] 创建 TestGraphTool
-- [ ] 实现数据库初始化和迁移
-- [ ] 实现 Git Diff 变更检测
-- [ ] 使用 LSPTool 构建调用图
-- [ ] 实现核心查询（影响分析、盲区发现）
+- [x] 设计 SQLite Schema（functions, calls, coverage）
+- [x] 创建 TestGraphTool 框架
+- [x] 实现数据库初始化和迁移
+- [x] 实现 Git Diff 变更检测
+- [ ] 使用 LSPTool 构建调用图 ⚠️ **关键任务，未完成**
+- [x] 实现核心查询（影响分析、盲区发现）- 数据库查询已实现
 - [ ] 实现增量更新机制
+- [ ] 安装 better-sqlite3 依赖
+- [ ] 注册工具到 tools.ts
+- [ ] 创建测试脚本并验证功能
+
+**当前进度：40% - 基础架构完成，核心功能待实现**
 
 **交付物：**
 ```typescript

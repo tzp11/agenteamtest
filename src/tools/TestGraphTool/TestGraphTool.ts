@@ -3,11 +3,13 @@ import { buildTool } from '../../Tool.js'
 import { getCwd } from '../../utils/cwd.js'
 import { TestGraphDatabase } from './database.js'
 import { GitDiffDetector } from './gitDiffDetector.js'
+import { CallGraphBuilder } from './callGraphBuilder.js'
 
 const inputSchema = z.strictObject({
   operation: z
     .enum([
       'init',
+      'buildCallGraph',
       'findAffectedTests',
       'findUncoveredFunctions',
       'findHighRiskFunctions',
@@ -17,6 +19,17 @@ const inputSchema = z.strictObject({
       'cleanup'
     ])
     .describe('Operation to perform'),
+
+  // buildCallGraph 参数
+  filePatterns: z
+    .array(z.string())
+    .optional()
+    .describe('File patterns to scan (e.g., ["**/*.ts", "**/*.js"])'),
+
+  maxDepth: z
+    .number()
+    .optional()
+    .describe('Maximum call depth to analyze'),
 
   // findAffectedTests 参数
   functionName: z
@@ -71,6 +84,7 @@ export const TestGraphTool = buildTool({
 
 Supported Operations:
 - init: Initialize the database
+- buildCallGraph: Scan project and build function call graph using LSPTool
 - findAffectedTests: Find tests affected by a function change
 - findUncoveredFunctions: Find functions without test coverage
 - findHighRiskFunctions: Find high-complexity uncovered functions
@@ -81,6 +95,7 @@ Supported Operations:
 
 Examples:
 - Initialize: {operation: "init"}
+- Build call graph: {operation: "buildCallGraph", filePatterns: ["**/*.ts"]}
 - Find affected tests: {operation: "findAffectedTests", functionName: "authenticateUser"}
 - Find uncovered: {operation: "findUncoveredFunctions", minComplexity: 10}
 - Get stats: {operation: "getCoverageStats"}
@@ -92,6 +107,7 @@ Examples:
 
 Operations:
 - init: Initialize database
+- buildCallGraph: Build call graph
 - findAffectedTests: Find affected tests
 - findUncoveredFunctions: Find uncovered functions
 - findHighRiskFunctions: Find high-risk functions
@@ -130,6 +146,24 @@ Operations:
             data: {
               message: 'Database initialized successfully',
               dbPath: db['dbPath']
+            }
+          }
+        }
+
+        case 'buildCallGraph': {
+          const builder = new CallGraphBuilder(db, cwd)
+
+          const result = await builder.buildCallGraph({
+            filePatterns: args.filePatterns,
+            maxDepth: args.maxDepth || 3
+          })
+
+          return {
+            data: {
+              message: 'Call graph built successfully',
+              functionsProcessed: result.functionsProcessed,
+              callsFound: result.callsFound,
+              errors: result.errors.length > 0 ? result.errors : undefined
             }
           }
         }
