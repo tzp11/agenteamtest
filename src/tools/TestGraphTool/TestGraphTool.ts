@@ -137,6 +137,7 @@ Operations:
 
   call: async (args: InputSchema) => {
     const cwd = getCwd()
+    console.log('[DEBUG TestGraphTool] cwd:', cwd)
     const db = new TestGraphDatabase(cwd)
     const gitDetector = new GitDiffDetector(cwd)
 
