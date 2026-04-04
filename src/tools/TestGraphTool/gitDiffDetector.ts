@@ -131,8 +131,12 @@ export class GitDiffDetector {
     try {
       console.log('[DEBUG gitDiffDetector] Executing:', command, 'in', this.cwd)
       const result = await exec(command, { cwd: this.cwd })
-      console.log('[DEBUG gitDiffDetector] Result:', result.stdout)
+      console.log('[DEBUG gitDiffDetector] Result type:', typeof result)
+      console.log('[DEBUG gitDiffDetector] Result keys:', Object.keys(result))
+      console.log('[DEBUG gitDiffDetector] Result.stdout:', result.stdout)
+      console.log('[DEBUG gitDiffDetector] Result.stdout length:', result.stdout?.length)
       const lines = result.stdout.trim().split('\n').filter(line => line.length > 0)
+      console.log('[DEBUG gitDiffDetector] Lines found:', lines.length)
 
       const changes: GitFileChange[] = []
 
