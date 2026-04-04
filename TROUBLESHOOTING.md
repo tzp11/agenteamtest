@@ -965,6 +965,273 @@ Test Reviewer（审查所有测试）
 5. 实现审查循环
 6. 集成到 Claude Code
 
+### 常见问题与解决方案
+
+#### 问题 1：Agent 调用失败 - "Agent type 'xxx' not found"
+
+**现象：**
+```
+● test-reviewer(审查测试质量)
+  Error: Agent type 'test-reviewer' not found. Available agents: 
+  general-purpose, statusline-setup, claude-code-guide
+```
+
+**原因：**
+1. 使用了错误的调用语法 `test-reviewer(...)`
+2. 这种语法被解析为 `subagent_type` 参数
+3. `subagent_type` 只支持内置 Agent（general-purpose, statusline-setup 等）
+4. 自定义 Agent 不能用这种方式调用
+
+**解决方案：**
+
+✅ **正确的调用方式：**
+```
+使用 test-reviewer Agent 审查 test/tests/test_auth.c 的测试代码质量
+```
+
+❌ **错误的调用方式：**
+```
+test-reviewer(审查测试质量)  # 这会被解析为 subagent_type
+```
+
+**验证：**
+```bash
+# 检查 Agent 是否被加载
+bun run verify-agents.ts
+```
+
+---
+
+#### 问题 2：新创建的 Agent 不被识别
+
+**现象：**
+创建了 `.claude/agents/my-agent.md`，但 Claude Code 找不到这个 Agent。
+
+**原因：**
+Agent 定义在 Claude Code 启动时加载并缓存，新创建的文件不会自动加载。
+
+**解决方案：**
+
+**方案 1：重启 Claude Code（推荐）**
+```bash
+# 退出当前会话
+exit
+
+# 重新启动
+./start.sh
+```
+
+**方案 2：清除缓存**
+```bash
+# 清除 Agent 缓存
+rm -rf ~/.claude/cache/*
+```
+
+**方案 3：使用验证脚本检查**
+```bash
+# 运行验证脚本
+bun run verify-agents.ts
+
+# 如果显示 Agent 未加载，说明需要重启
+```
+
+---
+
+#### 问题 3：Agent 文件无法提交到 Git
+
+**现象：**
+```bash
+git add .claude/agents/*.md
+# 错误：下列路径根据您的一个 .gitignore 文件而被忽略：.claude
+```
+
+**原因：**
+`.claude` 目录在 `.gitignore` 中被忽略。
+
+**解决方案：**
+
+**使用 `-f` 强制添加：**
+```bash
+git add -f .claude/agents/*.md
+```
+
+**或者修改 .gitignore：**
+```bash
+# 在 .gitignore 中添加例外
+.claude/*
+!.claude/agents/
+```
+
+**注意：**
+- Agent 定义文件应该提交到版本控制
+- 但 `.claude/test-memory/` 等运行时数据不应提交
+
+---
+
+#### 问题 4：Agent frontmatter 格式错误
+
+**现象：**
+Agent 文件存在，但无法被加载，`verify-agents.ts` 显示解析错误。
+
+**原因：**
+frontmatter 格式不正确或缺少必需字段。
+
+**正确的格式：**
+```markdown
+---
+name: my-agent
+description: My Agent - Does something useful
+model: sonnet
+---
+
+# My Agent
+
+Agent content here...
+```
+
+**必需字段：**
+- `name`: Agent 类型名称（用于调用）
+- `description`: Agent 描述（显示在列表中）
+- `model`: 使用的模型（sonnet/opus/haiku/inherit）
+
+**可选字段：**
+- `tools`: 允许使用的工具列表
+- `disallowedTools`: 禁止使用的工具列表
+- `effort`: 努力程度（low/medium/high）
+- `permissionMode`: 权限模式
+- `background`: 是否后台运行
+
+**验证格式：**
+```bash
+# 检查 frontmatter
+head -10 .claude/agents/my-agent.md
+
+# 运行验证脚本
+./test-agents.sh
+```
+
+---
+
+#### 问题 5：Agent 调用成功但没有使用预期的 Tool
+
+**现象：**
+Agent 被调用，但没有使用 TestGraphTool、TestMemoryTool 等工具。
+
+**原因：**
+1. Agent 定义中没有明确说明要使用哪些 Tool
+2. Agent 的 prompt 不够具体
+3. Tool 可能被 `disallowedTools` 禁用
+
+**解决方案：**
+
+**1. 在 Agent 定义中明确列出可用工具：**
+```markdown
+---
+name: my-agent
+description: My Agent
+model: sonnet
+---
+
+# My Agent
+
+## Available Tools
+
+You have access to:
+- **TestGraphTool**: Query code relationships
+- **TestMemoryTool**: Review historical test data
+- **Read**: Read source code
+```
+
+**2. 在 prompt 中明确要求使用工具：**
+```
+使用 test-architect Agent 分析 test/src/auth.c 的测试策略。
+请使用 TestGraphTool 查询函数关系，使用 TestCoverageTool 分析覆盖率。
+```
+
+**3. 检查 tools 配置：**
+```markdown
+---
+name: my-agent
+tools: ['*']  # 允许所有工具
+# 或者明确列出
+tools: ['TestGraphTool', 'TestMemoryTool', 'Read', 'Grep']
+---
+```
+
+---
+
+#### 问题 6：Agent 输出格式不符合预期
+
+**现象：**
+Agent 输出的格式与 Agent 定义中的示例不一致。
+
+**原因：**
+1. Agent 定义中的输出格式示例不够清晰
+2. 没有使用强制性的格式要求
+3. 模型自由发挥
+
+**解决方案：**
+
+**在 Agent 定义中使用明确的格式要求：**
+```markdown
+## Output Format
+
+**IMPORTANT**: Always structure your output as follows:
+
+```
+## Test Strategy for [Module]
+
+### Priority 1: Critical Paths
+- Function: `functionName` (file:line)
+  - Complexity: X
+  - Test types: Unit + Integration
+
+### Priority 2: Important Functions
+...
+```
+
+Use this exact format. Do not deviate.
+```
+
+**在调用时重申格式要求：**
+```
+使用 test-architect Agent 分析 auth.c，
+输出必须包含：1) 优先级分类 2) 具体函数名和行号 3) 测试类型建议
+```
+
+---
+
+### 调试技巧
+
+**1. 查看 Agent 是否被加载：**
+```bash
+bun run verify-agents.ts
+```
+
+**2. 检查 Agent 定义格式：**
+```bash
+./test-agents.sh
+```
+
+**3. 测试 Agent 功能：**
+```bash
+# 使用简化的测试 prompts
+cat SIMPLE_TEST_PROMPTS.md
+```
+
+**4. 查看 Claude Code 日志：**
+```bash
+tail -100 ~/.claude/debug/*.txt | grep -i agent
+```
+
+**5. 清除缓存重新加载：**
+```bash
+rm -rf ~/.claude/cache/*
+# 重启 Claude Code
+```
+
+---
+
 ### 经验总结
 
 1. **Agent 设计要具体**：不要只写"生成测试"，要详细说明如何生成、生成什么
@@ -972,3 +1239,8 @@ Test Reviewer（审查所有测试）
 3. **考虑实际场景**：基于真实的测试问题设计 Agent 能力
 4. **标准化输出**：统一的输出格式便于后续处理
 5. **工具集成优先**：充分利用现有工具，避免重复造轮子
+6. **调用语法要正确**：自定义 Agent 使用自然语言调用，不要用 `agent-name(...)` 语法
+7. **修改后要重启**：修改 Agent 定义后需要重启 Claude Code
+8. **格式要严格**：frontmatter 必须包含必需字段且格式正确
+9. **测试要充分**：创建测试脚本和文档，方便验证和调试
+10. **版本控制要注意**：Agent 定义文件要提交，但运行时数据不要提交

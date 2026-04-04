@@ -937,31 +937,54 @@ console.log(impact);
 - [x] 编写 integration-test-engineer.md
 - [x] 编写 test-reviewer.md
 - [x] 编写 test-diagnostician.md
-- [ ] 测试每个 Agent 的独立功能
-- [ ] 优化 Agent 提示词
+- [x] 测试每个 Agent 的独立功能
+- [x] 创建测试脚本和验证工具
+- [x] 编写测试指南文档
 
 **当前进度：100% ✅ - Week 5 完成！**
 
 **实际完成情况：**
 - 完成度：100%
-- 核心提交记录：待提交
-- 新增文件：5个 Agent 定义文件
-  - `.claude/agents/test-architect.md` (Sonnet, 测试架构师)
-  - `.claude/agents/unit-test-engineer.md` (Haiku, 单元测试工程师)
-  - `.claude/agents/integration-test-engineer.md` (Sonnet, 集成测试工程师)
-  - `.claude/agents/test-reviewer.md` (Opus, 测试审查员)
-  - `.claude/agents/test-diagnostician.md` (Sonnet, 测试诊断专家)
-- 代码行数：~1500行 Agent 定义和文档
+- 核心提交记录：`6a11f05` feat: 完成 Week 5 - 定义 5 个专业测试 Agent
+- 新增文件：12 个（+2317 行，-6 行）
+  - **Agent 定义**（5 个，1495 行）：
+    - `.claude/agents/test-architect.md` (110 行, Sonnet)
+    - `.claude/agents/unit-test-engineer.md` (226 行, Haiku)
+    - `.claude/agents/integration-test-engineer.md` (339 行, Sonnet)
+    - `.claude/agents/test-reviewer.md` (401 行, Opus)
+    - `.claude/agents/test-diagnostician.md` (419 行, Sonnet)
+  - **测试工具**（4 个，369 行）：
+    - `test-agents.sh` - 格式验证脚本
+    - `test-week5-agents.sh` - 功能测试指南
+    - `verify-agents.ts` - Agent 注册验证工具
+    - `SIMPLE_TEST_PROMPTS.md` - 快速测试 prompts
+  - **文档**（3 个，410 行）：
+    - `test-agents-guide.md` - 完整测试文档
+    - `TROUBLESHOOTING.md` - 更新 Week 5 章节
+    - `implementation_plan.md` - 本文件
 
 **交付物：**
-5 个 Agent 定义文件，放在 `.claude/agents/` 目录
+```
+.claude/agents/
+├── test-architect.md              # 测试架构师
+├── unit-test-engineer.md          # 单元测试工程师
+├── integration-test-engineer.md   # 集成测试工程师
+├── test-reviewer.md               # 测试审查员
+└── test-diagnostician.md          # 测试诊断专家
+
+测试工具/
+├── test-agents.sh                 # 格式验证
+├── test-week5-agents.sh           # 功能测试
+├── verify-agents.ts               # 注册验证
+└── SIMPLE_TEST_PROMPTS.md         # 测试 prompts
+```
 
 **验收标准：**
 - ✅ 每个 Agent 有清晰的职责定义
 - ✅ 每个 Agent 有详细的工作流程
 - ✅ Agent 输出格式规范
 - ✅ Agent 能正确使用 Tool
-- ⏭️ 独立功能测试（需要 Week 6 的 Orchestrator）
+- ✅ 所有 Agent 通过功能测试（5/5）
 
 **设计亮点：**
 1. **职责分离**：每个 Agent 专注特定任务（架构/单元/集成/审查/诊断）
@@ -969,6 +992,7 @@ console.log(impact);
 3. **工具集成**：充分利用现有 Tool（TestGraphTool、TestMemoryTool 等）
 4. **输出规范**：统一的输出格式，便于后续编排
 5. **实战导向**：基于真实测试场景设计，包含大量示例
+6. **完整测试**：提供多种测试工具和详细文档
 
 **Agent 协作流程：**
 ```
@@ -984,6 +1008,43 @@ console.log(impact);
          ↓
     [如果失败] → Test Diagnostician（诊断）
 ```
+
+**实现思路与原规划的差异：**
+
+| 原规划 | 实际实现 | 原因 |
+|--------|---------|------|
+| 只定义 Agent，不测试 | 完整测试所有 Agent | 确保 Agent 能正常工作 |
+| 简单的 Agent 定义 | 详细的工作流程和示例 | 提高 Agent 质量和可用性 |
+| 无测试工具 | 创建 3 个测试脚本 + 验证工具 | 方便后续开发和调试 |
+| 无文档 | 创建 3 个详细文档 | 降低使用门槛 |
+
+**遇到的核心问题：**
+
+1. **Agent 调用语法混淆**
+   - **问题**：使用 `test-reviewer(...)` 语法导致 "Agent type not found" 错误
+   - **原因**：这种语法被解析为 `subagent_type` 参数，只支持内置 Agent
+   - **解决**：使用自然语言 `使用 test-reviewer Agent ...`
+   - **教训**：自定义 Agent 的调用方式与内置 Agent 不同
+
+2. **Agent 未被加载**
+   - **问题**：新创建的 Agent 文件不被识别
+   - **原因**：Agent 定义在启动时加载并缓存
+   - **解决**：重启 Claude Code 或清除缓存
+   - **教训**：修改 Agent 定义后需要重启
+
+3. **.claude 目录被 gitignore**
+   - **问题**：`git add .claude/agents/*.md` 失败
+   - **原因**：`.claude` 目录在 `.gitignore` 中
+   - **解决**：使用 `git add -f` 强制添加
+   - **教训**：Agent 定义文件需要提交到版本控制
+
+4. **Agent 定义格式要求**
+   - **问题**：frontmatter 格式错误导致 Agent 无法加载
+   - **原因**：必须包含 `name`, `description`, `model` 字段
+   - **解决**：严格遵循格式规范
+   - **教训**：使用验证脚本检查格式
+
+详见 [TROUBLESHOOTING.md - Week 5](TROUBLESHOOTING.md#week-5-multi-agent-测试协同---agent-定义)
 
 ---
 
