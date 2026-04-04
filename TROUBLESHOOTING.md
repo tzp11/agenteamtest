@@ -6,7 +6,94 @@
 
 ## Week 1-2: 基础工具开发
 
-### 问题：LSPTool 符号查询失败
+### 问题 1: 工具调用失败，显示"内部错误" ⭐⭐
+
+**现象：** 调用自定义工具时返回"内部错误"，无法正常执行。
+
+**根本原因：** `mapToolResultToToolResultBlockParam` 方法签名不正确。
+
+**错误示例：**
+```typescript
+// ❌ 错误：只接受一个参数
+mapToolResultToToolResultBlockParam(result) {
+  return result
+}
+```
+
+**解决方案：**
+```typescript
+// ✅ 正确：必须接受两个参数
+mapToolResultToToolResultBlockParam(content, toolUseID) {
+  return {
+    type: 'tool_result' as const,
+    tool_use_id: toolUseID,
+    content: JSON.stringify(content)
+  }
+}
+```
+
+**关键要点：**
+- `description()` 和 `prompt()` 可以不接受参数
+- `mapToolResultToToolResultBlockParam(content, toolUseID)` **必须**接受两个参数
+- `call()` 可以只接受 `args` 参数，其他参数可选
+
+**返回格式规范：**
+```typescript
+// 成功
+return { data: { /* 数据 */ } }
+
+// 失败
+return { data: null, error: '错误信息' }
+```
+
+---
+
+### 问题 2: MACRO is not defined ⭐
+
+**现象：** 运行时报错 `MACRO is not defined`。
+
+**根本原因：** 没有正确加载 `preload.ts`，直接使用 bun 运行入口文件。
+
+**错误示例：**
+```bash
+# ❌ 错误：直接调用 bun
+bun --env-file=.env ./src/entrypoints/cli.tsx
+```
+
+**解决方案：**
+```bash
+# ✅ 正确：使用 bin/claude-haha 启动
+./bin/claude-haha
+
+# 或者使用调试模式
+./start-debug.sh
+```
+
+---
+
+### 问题 3: 工具注册失败 ⭐
+
+**现象：** 自定义工具无法被识别或调用。
+
+**根本原因：** 没有在 `src/tools.ts` 中正确注册工具。
+
+**解决方案：**
+```typescript
+// 1. 导入工具
+import { YourTool } from './tools/YourTool/YourTool.js'
+
+// 2. 添加到工具列表
+export function getAllBaseTools(): Tools {
+  return [
+    // ... 其他工具
+    YourTool,  // 添加你的工具
+  ]
+}
+```
+
+---
+
+### 问题 4: LSPTool 符号查询失败 ⭐
 
 **现象：** 调用 `getSymbols` 返回空数组，无法获取函数定义。
 
