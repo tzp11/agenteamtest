@@ -67,6 +67,14 @@ export class TestGraphDatabase {
   private db: Database
   private dbPath: string
 
+  /**
+   * Get the underlying database instance
+   * Used by services that need direct database access
+   */
+  getDatabase(): Database {
+    return this.db
+  }
+
   constructor(cwd?: string) {
     const workingDir = cwd || getCwd()
     const graphDir = path.join(workingDir, '.claude', 'test-graph')

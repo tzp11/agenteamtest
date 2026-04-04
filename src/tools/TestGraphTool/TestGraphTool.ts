@@ -5,6 +5,7 @@ import { TestGraphDatabase } from './database.js'
 import { GitDiffDetector } from './gitDiffDetector.js'
 import { CallGraphBuilder } from './callGraphBuilder.js'
 import { IncrementalUpdater } from './incrementalUpdater.js'
+import { ImpactAnalyzer } from '../../services/codeAnalysis/impactAnalyzer.js'
 
 const inputSchema = z.strictObject({
   operation: z
@@ -18,6 +19,7 @@ const inputSchema = z.strictObject({
       'getCoverageStats',
       'detectChanges',
       'getFileHistory',
+      'analyzeImpact',
       'cleanup'
     ])
     .describe('Operation to perform'),
@@ -71,7 +73,13 @@ const inputSchema = z.strictObject({
   retentionDays: z
     .number()
     .optional()
-    .describe('Number of days to retain data (default: 90)')
+    .describe('Number of days to retain data (default: 90)'),
+
+  // analyzeImpact 参数
+  changedFiles: z
+    .array(z.string())
+    .optional()
+    .describe('List of changed file paths to analyze impact')
 })
 
 type InputSchema = z.infer<typeof inputSchema>
@@ -94,6 +102,7 @@ Supported Operations:
 - getCoverageStats: Get overall coverage statistics
 - detectChanges: Detect Git changes (unstaged, staged, or between commits)
 - getFileHistory: Get Git history for a specific file
+- analyzeImpact: Analyze impact of changed files on tests and functions
 - cleanup: Remove old data
 
 Examples:
@@ -101,6 +110,7 @@ Examples:
 - Build call graph: {operation: "buildCallGraph"}
 - Incremental update: {operation: "incrementalUpdate"}
 - Find affected tests: {operation: "findAffectedTests", functionName: "authenticateUser"}
+- Analyze impact: {operation: "analyzeImpact", changedFiles: ["src/auth/login.ts"]}
 - Find uncovered: {operation: "findUncoveredFunctions", minComplexity: 10}`
   },
 
@@ -345,6 +355,55 @@ Operations:
               message: `Cleaned up ${removed} old records`,
               removed,
               retentionDays: args.retentionDays || 90
+            }
+          }
+        }
+
+        case 'analyzeImpact': {
+          console.log('[DEBUG TestGraphTool] analyzeImpact operation started')
+          console.log('[DEBUG TestGraphTool] args:', JSON.stringify(args))
+
+          if (!args.changedFiles || args.changedFiles.length === 0) {
+            console.log('[DEBUG TestGraphTool] changedFiles is empty or missing')
+            return {
+              data: null,
+              error: 'changedFiles is required for analyzeImpact operation'
+            }
+          }
+
+          try {
+            console.log('[DEBUG TestGraphTool] Creating ImpactAnalyzer...')
+            const analyzer = new ImpactAnalyzer(db.getDatabase(), cwd)
+            console.log('[DEBUG TestGraphTool] ImpactAnalyzer created, calling analyzeImpact...')
+            const impact = await analyzer.analyzeImpact(args.changedFiles)
+            console.log('[DEBUG TestGraphTool] analyzeImpact completed, functions:', impact.affectedFunctions.length)
+
+            return {
+              data: {
+                changedFiles: impact.changedFiles,
+                affectedFunctions: impact.affectedFunctions.map(f => ({
+                  name: f.name,
+                  filePath: f.filePath,
+                  complexity: f.complexity,
+                  callDepth: f.callDepth
+                })),
+                affectedTests: impact.affectedTests.map(t => ({
+                  testName: t.testName,
+                  testFile: t.testFile,
+                  affectedFunction: t.affectedFunction,
+                  callDepth: t.callDepth,
+                  lastStatus: t.lastStatus,
+                  avgExecutionTime: t.avgExecutionTime
+                })),
+                recommendation: impact.recommendation,
+                estimatedTestTime: impact.estimatedTestTime
+              }
+            }
+          } catch (error) {
+            console.error('[DEBUG TestGraphTool] analyzeImpact error:', error)
+            return {
+              data: null,
+              error: `Failed to analyze impact: ${error instanceof Error ? error.message : String(error)}`
             }
           }
         }

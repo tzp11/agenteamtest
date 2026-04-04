@@ -119,13 +119,24 @@ API_TIMEOUT_MS=60000
 
 ## 最近更新
 
-### v1.0.0 (2026-04-03)
+### v1.1.0 (2026-04-03) - Week 4 完成
+
+- ✅ 实现影响分析服务（ImpactAnalyzer）
+- ✅ 实现调用图构建器（CallGraphBuilder）
+- ✅ 实现报告格式化器（ReportFormatter）
+- ✅ 实现查询缓存（QueryCache）
+- ✅ 新增 analyzeImpact 操作到 TestGraphTool
+- ✅ 优化数据库查询性能（递归 CTE + 缓存）
+- ✅ 完善文档和测试脚本
+
+### v1.0.0 (2026-04-03) - Week 1-3 完成
 
 - ✅ 修复所有工具的方法签名问题
 - ✅ 完善启动脚本，支持 MACRO 全局变量
 - ✅ 新增 test/ 工作目录
 - ✅ 添加完整的开发教程
 - ✅ 优化 Git 工作流程
+- ✅ 实现 TestMemoryTool、TestCoverageTool、TestGraphTool
 
 ## 贡献
 
