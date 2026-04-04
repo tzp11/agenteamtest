@@ -46,10 +46,16 @@ export class IncrementalUpdater {
         ? await this.gitDetector.getChangesBetweenCommits(fromCommit, 'HEAD')
         : await this.getUnstagedAndStagedChanges()
 
+      console.log('[DEBUG incrementalUpdate] Total changes detected:', changes.length)
+      console.log('[DEBUG incrementalUpdate] Changes:', JSON.stringify(changes, null, 2))
+
       // 2. 处理每个变更的文件
       for (const change of changes) {
         try {
           const filePath = path.join(this.cwd, change.filePath)
+          console.log('[DEBUG incrementalUpdate] Processing change:', change.filePath)
+          console.log('[DEBUG incrementalUpdate] Full path:', filePath)
+          console.log('[DEBUG incrementalUpdate] Change type:', change.changeType)
 
           if (change.changeType === 'deleted') {
             // 删除文件：从数据库中移除相关函数
@@ -57,7 +63,9 @@ export class IncrementalUpdater {
             filesDeleted++
           } else if (change.changeType === 'added' || change.changeType === 'modified') {
             // 新增或修改文件：重新扫描
-            if (this.shouldProcessFile(filePath)) {
+            const shouldProcess = this.shouldProcessFile(filePath)
+            console.log('[DEBUG incrementalUpdate] Should process?', shouldProcess)
+            if (shouldProcess) {
               const result = await this.updateFile(filePath, maxDepth)
               functionsUpdated += result.functionsUpdated
               callsUpdated += result.callsUpdated
@@ -147,30 +155,39 @@ export class IncrementalUpdater {
    * 判断是否应该处理该文件
    */
   private shouldProcessFile(filePath: string): boolean {
+    console.log('[DEBUG shouldProcessFile] Checking file:', filePath)
+
     // 只处理代码文件
     const codeExtensions = ['.ts', '.tsx', '.js', '.jsx', '.py', '.go', '.java', '.rs', '.cpp', '.c', '.cs']
     const ext = path.extname(filePath).toLowerCase()
+    console.log('[DEBUG shouldProcessFile] Extension:', ext)
 
     if (!codeExtensions.includes(ext)) {
+      console.log('[DEBUG shouldProcessFile] Extension not in code extensions, skipping')
       return false
     }
 
     // 跳过测试文件（可选）
     // 注意：只匹配文件名，不匹配目录名
     const fileName = path.basename(filePath)
+    console.log('[DEBUG shouldProcessFile] File name:', fileName)
     const testPatterns = ['.test.', '.spec.', '_test.', '_spec.']
     if (testPatterns.some(pattern => fileName.includes(pattern))) {
+      console.log('[DEBUG shouldProcessFile] File name matches test pattern, skipping')
       return false
     }
 
     // 跳过特定的测试目录
     const testDirs = ['__tests__', '__mocks__']
     if (testDirs.some(dir => filePath.includes(`/${dir}/`))) {
+      console.log('[DEBUG shouldProcessFile] File in test directory, skipping')
       return false
     }
 
     // 检查文件是否存在
-    return fs.existsSync(filePath)
+    const exists = fs.existsSync(filePath)
+    console.log('[DEBUG shouldProcessFile] File exists?', exists)
+    return exists
   }
 
   /**
