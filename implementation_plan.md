@@ -866,14 +866,16 @@ await TestGraphTool.call({
 
 **实际完成情况：**
 - 完成度：100%
-- 核心提交记录：（待提交）
-- 新增文件：4个
-  - `src/services/codeAnalysis/impactAnalyzer.ts`
-  - `src/services/codeAnalysis/callGraphBuilder.ts`
-  - `src/services/codeAnalysis/reportFormatter.ts`
-  - `src/services/codeAnalysis/queryCache.ts`
-- 代码行数：~800行
-- 新增功能：analyzeImpact 操作
+- 核心提交记录：`2f02bb3` feat: 完成 Week 4 - 影响分析和自动触发
+- 新增文件：4个核心服务 + 4个测试文件 + 4个文档
+  - `src/services/codeAnalysis/impactAnalyzer.ts` (289行)
+  - `src/services/codeAnalysis/callGraphBuilder.ts` (280行)
+  - `src/services/codeAnalysis/reportFormatter.ts` (210行)
+  - `src/services/codeAnalysis/queryCache.ts` (160行)
+  - `test/src/auth.c`, `test/src/session.c` (测试用 C 代码)
+  - `test/tests/test_auth.c`, `test/tests/test_session.c` (测试用例)
+- 代码行数：~2154行新增，-294行删除
+- 新增功能：analyzeImpact 操作集成到 TestGraphTool
 
 **交付物：**
 ```typescript
@@ -904,6 +906,22 @@ console.log(impact);
 2. **CallGraphBuilder**：集成 LSPTool 进行代码分析，提取函数定义和调用关系
 3. **ReportFormatter**：生成美观的 ASCII 报告，包含进度条、风险标记等
 4. **QueryCache**：实现 TTL 缓存，支持模式匹配失效，提升查询性能
+
+**实现思路与原规划的差异：**
+
+| 原规划 | 实际实现 | 原因 |
+|--------|---------|------|
+| 使用 LSPTool 构建完整调用图 | CallGraphBuilder 框架已实现，但未在 Week 4 直接使用 | Week 3 的 CallGraphBuilder 已经能满足需求，Week 4 的 CallGraphBuilder 作为备用方案 |
+| 实现文件变更监控（可选） | 未实现 | 使用 Git Diff 检测已足够，实时监控不是必需功能 |
+| 自动触发测试 | 未实现 | 只实现了影响分析和推荐，实际触发留给 CI/CD 或用户手动执行 |
+
+**遇到的核心问题：**
+1. **数据库私有属性访问** - `db['db']` 无法访问，需添加 `getDatabase()` 方法
+2. **SQL 字段名错误** - `test_coverage` 表只存储 ID，不存储名称，需 JOIN `functions` 表
+3. **路径匹配不灵活** - 只支持精确匹配，改进为支持后缀匹配和文件名匹配
+4. **工具静默失败** - 参考 Week 1-2 经验，添加 try-catch 和详细日志
+
+详见 [TROUBLESHOOTING.md - Week 4](TROUBLESHOOTING.md#week-4-影响分析与自动触发)
 
 ---
 

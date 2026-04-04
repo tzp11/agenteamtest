@@ -422,6 +422,199 @@ cd /home/tzp/work/agent/my_test/test
 
 ## Week 4: 影响分析与自动触发
 
+### 问题 1: 数据库私有属性访问失败 ⭐⭐⭐
+
+**现象：** 调用 `analyzeImpact` 操作时，工具静默失败，没有返回任何结果。
+
+**根本原因：** 尝试访问 `TestGraphDatabase` 的私有属性 `db`。
+
+**错误示例：**
+```typescript
+// ❌ 错误：访问私有属性
+const analyzer = new ImpactAnalyzer(db['db'], cwd)
+// db 是 TestGraphDatabase 实例
+// db.db 是 private 属性，无法访问
+```
+
+**解决方案：**
+```typescript
+// 1. 在 database.ts 中添加 getter 方法
+export class TestGraphDatabase {
+  private db: Database
+  
+  getDatabase(): Database {
+    return this.db
+  }
+}
+
+// 2. 使用 getter 方法
+const analyzer = new ImpactAnalyzer(db.getDatabase(), cwd)  // ✅
+```
+
+**关键要点：**
+- TypeScript 的 `private` 属性无法通过 `obj['prop']` 访问
+- 需要提供公共的 getter 方法
+- 这类错误会导致运行时异常，但不会有编译错误
+
+**关键代码：** `src/tools/TestGraphTool/database.ts:70-73`
+
+---
+
+### 问题 2: SQL 查询字段名与 Schema 不匹配 ⭐⭐⭐
+
+**现象：** `findAffectedTests` 查询卡住或返回空结果。
+
+**根本原因：** `test_coverage` 表只存储 ID，不存储测试名称和文件路径。
+
+**错误示例：**
+```sql
+-- ❌ 错误：test_coverage 表没有这些字段
+SELECT 
+  tc.test_name,      -- 不存在
+  tc.test_file,      -- 不存在
+  tc.function_id,
+  tc.status          -- 不存在
+FROM test_coverage tc
+```
+
+**正确的 Schema：**
+```sql
+CREATE TABLE test_coverage (
+  id INTEGER PRIMARY KEY,
+  test_function_id INTEGER NOT NULL,     -- 测试函数的 ID
+  covered_function_id INTEGER NOT NULL,  -- 被覆盖函数的 ID
+  coverage_type TEXT,
+  call_depth INTEGER,
+  -- 没有 test_name, test_file, status 字段！
+);
+```
+
+**解决方案：**
+```sql
+-- ✅ 正确：JOIN functions 表获取名称和路径
+SELECT DISTINCT
+  test_func.name as testName,
+  test_func.file_path as testFile,
+  cc.name as affectedFunction,
+  cc.depth as callDepth
+FROM test_coverage tc
+JOIN call_chain cc ON tc.covered_function_id = cc.id
+JOIN functions test_func ON tc.test_function_id = test_func.id
+ORDER BY cc.depth, test_func.name
+```
+
+**关键要点：**
+- 仔细检查数据库 Schema，不要假设字段存在
+- 关联表通常只存储 ID，需要 JOIN 获取详细信息
+- SQL 字段名错误会导致查询卡住或返回空结果
+
+**关键代码：** `src/services/codeAnalysis/impactAnalyzer.ts:95-120`
+
+---
+
+### 问题 3: 路径匹配不灵活导致查询失败 ⭐⭐
+
+**现象：** 调用 `analyzeImpact` 时传入 `src/auth.c`，但返回 0 个受影响函数。
+
+**根本原因：** 只支持精确路径匹配，但数据库存储的是完整路径。
+
+**错误示例：**
+```typescript
+// 用户输入：src/auth.c
+// 数据库存储：/home/tzp/work/agent/my_test/test/src/auth.c
+// 精确匹配失败 ❌
+
+const stmt = this.db.prepare(`
+  SELECT * FROM functions WHERE file_path = ?
+`)
+stmt.all('src/auth.c')  // 返回空数组
+```
+
+**解决方案：**
+```typescript
+private getFunctionsInFile(filePath: string): FunctionInfo[] {
+  // 1. 尝试精确匹配
+  let stmt = this.db.prepare(`
+    SELECT * FROM functions WHERE file_path = ?
+  `)
+  let results = stmt.all(filePath)
+  if (results.length > 0) return results
+
+  // 2. 尝试后缀匹配（src/auth.c 匹配 /path/to/src/auth.c）
+  stmt = this.db.prepare(`
+    SELECT * FROM functions WHERE file_path LIKE '%' || ?
+  `)
+  results = stmt.all(filePath)
+  if (results.length > 0) return results
+
+  // 3. 尝试文件名匹配（auth.c 匹配任何包含 auth.c 的路径）
+  const basename = filePath.split('/').pop() || filePath
+  stmt = this.db.prepare(`
+    SELECT * FROM functions WHERE file_path LIKE '%' || ?
+  `)
+  return stmt.all(basename)
+}
+```
+
+**关键要点：**
+- 路径可能是相对路径、绝对路径或文件名
+- 使用多级匹配策略：精确 → 后缀 → 文件名
+- SQL 的 `LIKE '%' || ?` 可以实现后缀匹配
+
+**关键代码：** `src/services/codeAnalysis/impactAnalyzer.ts:70-93`
+
+---
+
+### 问题 4: 工具静默失败，没有错误信息 ⭐⭐
+
+**现象：** 调用工具后没有任何返回，也没有错误信息，用户不知道发生了什么。
+
+**根本原因：** 工具内部抛出异常，但没有被捕获和返回给用户。
+
+**参考：** Week 1-2 问题 1 - 工具调用失败，显示"内部错误"
+
+**错误示例：**
+```typescript
+case 'analyzeImpact': {
+  // 如果这里抛出异常，用户看不到任何错误
+  const analyzer = new ImpactAnalyzer(db.getDatabase(), cwd)
+  const impact = await analyzer.analyzeImpact(args.changedFiles)
+  return { data: impact }
+}
+```
+
+**解决方案：**
+```typescript
+case 'analyzeImpact': {
+  console.log('[DEBUG] analyzeImpact operation started')
+  console.log('[DEBUG] args:', JSON.stringify(args))
+
+  try {
+    const analyzer = new ImpactAnalyzer(db.getDatabase(), cwd)
+    const impact = await analyzer.analyzeImpact(args.changedFiles)
+    console.log('[DEBUG] analyzeImpact completed')
+    
+    return { data: impact }
+  } catch (error) {
+    console.error('[DEBUG] analyzeImpact error:', error)
+    return {
+      data: null,
+      error: `Failed to analyze impact: ${error.message}`
+    }
+  }
+}
+```
+
+**关键要点：**
+- 所有工具操作都应该用 try-catch 包裹
+- 添加详细的调试日志（console.log）
+- 错误信息要返回给用户，不要静默失败
+- 参考 Week 1-2 的经验教训
+
+**关键代码：** `src/tools/TestGraphTool/TestGraphTool.ts:362-394`
+
+---
+
 ### 核心实现
 
 #### 1. ImpactAnalyzer - 影响分析器
@@ -590,3 +783,39 @@ console.log(impact.data.recommendation)
 3. **缓存要谨慎**：只缓存不常变的数据，变更频繁的数据不要缓存
 4. **索引很重要**：合适的索引可以将查询速度提升 10 倍
 5. **报告要美观**：好的可视化可以大幅提升用户体验
+
+### Week 4 核心教训
+
+1. **私有属性无法访问** - TypeScript 的 `private` 在运行时也会生效，需要提供 getter
+2. **Schema 要熟悉** - 写 SQL 前先查看表结构，不要假设字段存在
+3. **路径匹配要灵活** - 支持多种路径格式（相对/绝对/文件名）
+4. **异常要捕获** - 参考 Week 1-2 经验，所有操作都要 try-catch
+5. **日志要详细** - 添加 console.log 帮助调试，尤其是在工具静默失败时
+
+### 调试技巧
+
+**查看 TestGraphTool 调试日志：**
+```bash
+tail -100 ~/.claude/debug/*.txt | grep "DEBUG.*TestGraph\|DEBUG.*Impact"
+```
+
+**查看数据库内容：**
+```bash
+cd test
+/home/tzp/.bun/bin/bun -e "
+import { Database } from 'bun:sqlite';
+const db = new Database('.claude/test-graph/graph.db');
+const rows = db.query('SELECT name, file_path FROM functions LIMIT 10').all();
+rows.forEach(r => console.log(\`\${r.name} - \${r.file_path}\`));
+db.close();
+"
+```
+
+**测试路径匹配：**
+```bash
+# 使用完整路径
+使用 TestGraphTool 分析影响，变更文件为 /home/tzp/work/agent/my_test/test/src/auth.c
+
+# 使用相对路径（如果在 test/ 目录下）
+使用 TestGraphTool 分析影响，变更文件为 src/auth.c
+```
