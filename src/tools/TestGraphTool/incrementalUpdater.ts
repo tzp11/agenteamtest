@@ -252,6 +252,9 @@ export class IncrementalUpdater {
         filePatterns: options.filePatterns
       })
 
+      // 更新最后扫描时间戳
+      await this.updateLastScanTimestamp()
+
       return {
         filesProcessed: 0,
         functionsUpdated: fullResult.functionsProcessed,

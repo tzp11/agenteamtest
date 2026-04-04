@@ -7,13 +7,10 @@ int add(int a, int b) {
 int multiply(int a, int b) {
     return a * b;
 }
-int sub(int a, int b) {
-    return a - b;
-}
+
 
 int main() {
     printf("Add: %d\n", add(5, 3));
-    printf("sub: %d\n", sub(5, 3));
 
     return 0;
 }
