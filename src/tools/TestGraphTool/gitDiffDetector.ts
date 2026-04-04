@@ -129,7 +129,9 @@ export class GitDiffDetector {
    */
   private async parseGitDiff(command: string): Promise<GitFileChange[]> {
     try {
+      console.log('[DEBUG gitDiffDetector] Executing:', command, 'in', this.cwd)
       const result = await exec(command, { cwd: this.cwd })
+      console.log('[DEBUG gitDiffDetector] Result:', result.stdout)
       const lines = result.stdout.trim().split('\n').filter(line => line.length > 0)
 
       const changes: GitFileChange[] = []
