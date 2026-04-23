@@ -15,8 +15,20 @@ coverage/
 *~
 
 # 环境变量（包含敏感信息）
+.env
 .env.local
 .env.*.local
+
+# 编辑器/工具缓存
+.codex
+
+# 测试构建产物
+test/test_runner
+test/*.gcov
+test/*.gcno
+test/*.gcda
+test/tests.backup/
+test/benchmark.test.ts
 
 # Node modules
 node_modules/

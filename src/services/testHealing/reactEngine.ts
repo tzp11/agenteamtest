@@ -575,16 +575,33 @@ export class ReActEngine {
   }
 
   /**
-   * Load fix patterns from historical data (only successful ones)
+   * Load fix patterns
+   *
+   * 优先从 `.claude/test-memory/fix-patterns.json` 读取显式的修复模式库；
+   * 如果该文件不存在（首次使用），回退到从 `test-history.jsonl` 的历史记录中
+   * 推导出初始模式（兼容旧版行为）。
    */
   private async loadFixPatterns(): Promise<void> {
     if (!this.storage) return
 
     try {
-      const records = await this.storage.queryHistory({ limit: 100 })
+      // 1) 首选：持久化修复模式库
+      const persisted = await this.storage.loadFixPatterns()
+      if (persisted.length > 0) {
+        this.fixPatterns = persisted.map(p => ({
+          failureType: p.failureType as FailureType,
+          language: p.language as Language,
+          errorPattern: p.errorPattern,
+          fix: p.fix,
+          successCount: p.successCount,
+          lastUsed: p.lastUsed
+        }))
+        return
+      }
 
+      // 2) 回退：从测试历史推导（仅首次冷启动走这条路径）
+      const records = await this.storage.queryHistory({ limit: 100 })
       for (const record of records) {
-        // Only load successful fixes (result === 'pass') and have error message
         if (record.result === 'pass' && record.errorMessage) {
           const errorPattern = record.errorMessage.substring(0, 100)
 
@@ -596,7 +613,6 @@ export class ReActEngine {
           }
           const classification = this.classifier.classify(failure)
 
-          // Check if already exists
           const existing = this.fixPatterns.find(
             p => p.failureType === classification.type &&
                  p.language === classification.language &&
@@ -618,6 +634,20 @@ export class ReActEngine {
           }
         }
       }
+
+      // 将推导结果一次性落盘，供下次直接加载
+      if (this.fixPatterns.length > 0) {
+        await this.storage.saveFixPatterns(
+          this.fixPatterns.map(p => ({
+            failureType: p.failureType,
+            language: p.language,
+            errorPattern: p.errorPattern,
+            fix: p.fix,
+            successCount: p.successCount,
+            lastUsed: p.lastUsed
+          }))
+        )
+      }
     } catch (error) {
       console.warn('[ReActEngine] Failed to load fix patterns:', error)
     }
@@ -625,24 +655,53 @@ export class ReActEngine {
 
   /**
    * Save a successful fix pattern
+   *
+   * 双写：内存数组（热路径快速命中）+ 持久化 JSON（下次启动可恢复）。
+   * 持久化失败不影响当次流程，仅打日志。
    */
-  private saveFixPattern(type: FailureType, language: Language, error: string, fix: string): void {
+  private async saveFixPattern(
+    type: FailureType,
+    language: Language,
+    error: string,
+    fix: string
+  ): Promise<void> {
+    const now = Date.now()
+    const errorPattern = error.substring(0, 100)
+
+    // 1) 更新内存
     const existing = this.fixPatterns.find(
-      p => p.failureType === type && p.language === language && p.errorPattern === error
+      p => p.failureType === type && p.language === language && p.errorPattern === errorPattern
     )
 
     if (existing) {
       existing.successCount++
-      existing.lastUsed = Date.now()
+      existing.lastUsed = now
+      if (fix) existing.fix = fix
     } else {
       this.fixPatterns.push({
         failureType: type,
         language,
-        errorPattern: error,
+        errorPattern,
         fix,
         successCount: 1,
-        lastUsed: Date.now()
+        lastUsed: now
       })
+    }
+
+    // 2) 写盘（热更新）
+    if (this.storage) {
+      try {
+        await this.storage.upsertFixPattern({
+          failureType: type,
+          language,
+          errorPattern,
+          fix,
+          successCount: 1,
+          lastUsed: now
+        })
+      } catch (err) {
+        console.warn('[ReActEngine] Failed to persist fix pattern:', err)
+      }
     }
   }
 
@@ -762,9 +821,14 @@ export class ReActEngine {
       healingTime: Date.now() - startTime
     }
 
-    // If we found a known fix or fix succeeded, save the pattern
+    // If we found a known fix or fix succeeded, save the pattern (mem + disk)
     if (knownFix || result.success) {
-      this.saveFixPattern(classification.type, classification.language, error, result.finalFix || '')
+      await this.saveFixPattern(
+        classification.type,
+        classification.language,
+        error,
+        result.finalFix || ''
+      )
     }
 
     return result

@@ -1,6 +1,6 @@
 # Test Directory
 
-这是 Claude Code 的默认工作目录，用于测试和开发。
+这是 Claude Code 的默认工作目录，用于基础功能测试和开发。
 
 ## 目录说明
 

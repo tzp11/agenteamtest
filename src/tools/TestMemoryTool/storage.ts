@@ -42,6 +42,22 @@ export interface FailurePattern {
 }
 
 /**
+ * 修复模式（ReAct 引擎专用，持久化版本）
+ *
+ * 与 FailurePattern 的区别：
+ * - FailurePattern 只记录"失败聚类"，不含修复方案
+ * - FixPatternRecord 记录"错误 → 成功修复方案"的映射，用于加速 ReAct 命中
+ */
+export interface FixPatternRecord {
+  failureType: string      // 'environment' | 'test-code' | 'source-code' | 'unknown'
+  language: string         // 'c' | 'python' | 'java' | 'go' | 'rust' | 'unknown'
+  errorPattern: string     // 错误消息前 100 字符（签名）
+  fix: string              // 成功的修复方案描述
+  successCount: number     // 命中并成功的次数
+  lastUsed: number         // 最近一次使用时间戳
+}
+
+/**
  * JSONL 存储引擎
  */
 export class TestMemoryStorage {
@@ -49,6 +65,7 @@ export class TestMemoryStorage {
   private historyFile: string
   private statisticsFile: string
   private patternsFile: string
+  private fixPatternsFile: string
 
   constructor(cwd?: string) {
     const workingDir = cwd || getCwd()
@@ -56,6 +73,7 @@ export class TestMemoryStorage {
     this.historyFile = path.join(this.memoryDir, 'test-history.jsonl')
     this.statisticsFile = path.join(this.memoryDir, 'test-statistics.json')
     this.patternsFile = path.join(this.memoryDir, 'failure-patterns.json')
+    this.fixPatternsFile = path.join(this.memoryDir, 'fix-patterns.json')
 
     // 确保目录存在
     this.ensureDirectoryExists()
@@ -278,5 +296,74 @@ export class TestMemoryStorage {
     fs.writeFileSync(this.historyFile, kept.join('\n') + '\n', 'utf-8')
 
     return removed
+  }
+
+  /**
+   * 加载所有已持久化的修复模式（ReAct 引擎冷启动时调用）
+   */
+  async loadFixPatterns(): Promise<FixPatternRecord[]> {
+    if (!fs.existsSync(this.fixPatternsFile)) {
+      return []
+    }
+
+    try {
+      const content = fs.readFileSync(this.fixPatternsFile, 'utf-8')
+      const patterns: Record<string, FixPatternRecord> = JSON.parse(content)
+      return Object.values(patterns)
+    } catch {
+      // 文件损坏时返回空，不阻塞引擎启动
+      return []
+    }
+  }
+
+  /**
+   * 整体重写修复模式库（批量保存）
+   */
+  async saveFixPatterns(patterns: FixPatternRecord[]): Promise<void> {
+    const map: Record<string, FixPatternRecord> = {}
+    for (const p of patterns) {
+      map[this.buildFixPatternKey(p.failureType, p.language, p.errorPattern)] = p
+    }
+    fs.writeFileSync(this.fixPatternsFile, JSON.stringify(map, null, 2), 'utf-8')
+  }
+
+  /**
+   * 增量写入（ReAct 每次成功修复后调用，实现"热更新"）
+   *
+   * 命中已有条目 → successCount++ / lastUsed 更新；
+   * 否则 → 新建一条。
+   * 每次调用都会写盘，保证进程崩溃不丢新学到的模式。
+   */
+  async upsertFixPattern(record: FixPatternRecord): Promise<void> {
+    let map: Record<string, FixPatternRecord> = {}
+
+    if (fs.existsSync(this.fixPatternsFile)) {
+      try {
+        map = JSON.parse(fs.readFileSync(this.fixPatternsFile, 'utf-8'))
+      } catch {
+        map = {}
+      }
+    }
+
+    const key = this.buildFixPatternKey(record.failureType, record.language, record.errorPattern)
+    const existing = map[key]
+
+    if (existing) {
+      existing.successCount += 1
+      existing.lastUsed = record.lastUsed
+      // fix 可能被更新为更新鲜的方案
+      if (record.fix) existing.fix = record.fix
+    } else {
+      map[key] = record
+    }
+
+    fs.writeFileSync(this.fixPatternsFile, JSON.stringify(map, null, 2), 'utf-8')
+  }
+
+  /**
+   * 三元组唯一键：避免签名里的冒号/空格影响
+   */
+  private buildFixPatternKey(failureType: string, language: string, errorPattern: string): string {
+    return `${failureType}::${language}::${errorPattern}`
   }
 }

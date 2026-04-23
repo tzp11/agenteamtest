@@ -1,60 +1,115 @@
-// Test file for authentication
 #include <stdio.h>
 #include <assert.h>
 #include <string.h>
 
-// External functions from auth.c
+// Declare functions from auth.c
+extern int validate_password(const char* password);
+extern int user_exists(const char* username);
 extern int authenticate_user(const char* username, const char* password);
 extern char* generate_token(const char* username);
 extern char* login(const char* username, const char* password);
 
-void test_authenticate_user_success() {
-    int result = authenticate_user("admin", "password123");
-    assert(result == 1);
-    printf("✓ test_authenticate_user_success passed\n");
+// Constants for test data
+const char* TEST_USERNAME = "admin";
+const char* TEST_PASSWORD = "123456";
+const char* TEST_INVALID_PASSWORD = "12345";
+const char* TEST_NONEXISTENT_USER = "nonexistent";
+const char* TEST_USER1 = "user1";
+
+void test_validate_password() {
+    // Test NULL password
+    assert(validate_password(NULL) == 0);
+
+    // Test empty string
+    assert(validate_password("") == 0);
+
+    // Test short password (below minimum length)
+    assert(validate_password(TEST_INVALID_PASSWORD) == 0);
+
+    // Test valid password (exactly minimum length)
+    assert(validate_password(TEST_PASSWORD) == 1);
+
+    // Test long password (above minimum length)
+    assert(validate_password("1234567890") == 1);
+
+    printf("✓ test_validate_password passed\n");
 }
 
-void test_authenticate_user_invalid_password() {
-    int result = authenticate_user("admin", "123");
-    assert(result == 0);
-    printf("✓ test_authenticate_user_invalid_password passed\n");
+void test_user_exists() {
+    // Test non-existent user
+    assert(user_exists(TEST_NONEXISTENT_USER) == 0);
+
+    // Test existing user
+    assert(user_exists(TEST_USERNAME) == 1);
+
+    // Test user1 exists
+    assert(user_exists(TEST_USER1) == 1);
+
+    printf("✓ test_user_exists passed\n");
 }
 
-void test_authenticate_user_user_not_found() {
-    int result = authenticate_user("unknown", "password123");
-    assert(result == 0);
-    printf("✓ test_authenticate_user_user_not_found passed\n");
+void test_authenticate_user() {
+    // Test NULL inputs
+    assert(authenticate_user(NULL, NULL) == 0);
+    assert(authenticate_user(TEST_USERNAME, NULL) == 0);
+    assert(authenticate_user(NULL, TEST_PASSWORD) == 0);
+
+    // Test non-existent user
+    assert(authenticate_user(TEST_NONEXISTENT_USER, TEST_PASSWORD) == 0);
+
+    // Test invalid password
+    assert(authenticate_user(TEST_USERNAME, TEST_INVALID_PASSWORD) == 0);
+
+    // Test successful authentication
+    assert(authenticate_user(TEST_USERNAME, TEST_PASSWORD) == 1);
+
+    // Test user1 authentication
+    assert(authenticate_user(TEST_USER1, TEST_PASSWORD) == 1);
+
+    printf("✓ test_authenticate_user passed\n");
 }
 
 void test_generate_token() {
-    char* token = generate_token("admin");
+    // Test token generation
+    char* token = generate_token(TEST_USERNAME);
     assert(token != NULL);
-    assert(strncmp(token, "TOKEN_admin", 11) == 0);
+    assert(strstr(token, TEST_USERNAME) != NULL);
+
     printf("✓ test_generate_token passed\n");
 }
 
-void test_login_success() {
-    char* token = login("admin", "password123");
-    assert(token != NULL);
-    printf("✓ test_login_success passed\n");
-}
+void test_login() {
+    // Test NULL inputs
+    assert(login(NULL, NULL) == NULL);
+    assert(login(TEST_USERNAME, NULL) == NULL);
+    assert(login(NULL, TEST_PASSWORD) == NULL);
 
-void test_login_failure() {
-    char* token = login("admin", "wrong");
-    assert(token == NULL);
-    printf("✓ test_login_failure passed\n");
+    // Test failed login (non-existent user)
+    assert(login(TEST_NONEXISTENT_USER, TEST_PASSWORD) == NULL);
+
+    // Test failed login (invalid password)
+    assert(login(TEST_USERNAME, TEST_INVALID_PASSWORD) == NULL);
+
+    // Test successful login
+    char* token = login(TEST_USERNAME, TEST_PASSWORD);
+    assert(token != NULL);
+    assert(strstr(token, TEST_USERNAME) != NULL);
+
+    // Test user1 login
+    char* token1 = login(TEST_USER1, TEST_PASSWORD);
+    assert(token1 != NULL);
+    assert(strstr(token1, TEST_USER1) != NULL);
+
+    printf("✓ test_login passed\n");
 }
 
 int main() {
-    printf("Running authentication tests...\n\n");
-
-    test_authenticate_user_success();
-    test_authenticate_user_invalid_password();
-    test_authenticate_user_user_not_found();
+    printf("Running tests...\n\n");
+    test_validate_password();
+    test_user_exists();
+    test_authenticate_user();
     test_generate_token();
-    test_login_success();
-    test_login_failure();
-
+    test_login();
     printf("\nAll tests passed!\n");
     return 0;
 }

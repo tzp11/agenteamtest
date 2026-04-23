@@ -141,25 +141,43 @@ export class ImpactAnalyzer {
 
   /**
    * Find all tests affected by a function change
-   * Uses recursive CTE to traverse call chain
+   * Uses recursive CTE to traverse call chain AND overrides_id chain
+   * When a virtual/base method changes, all overriding methods are also impacted
    */
   private findAffectedTests(functionId: number): TestInfo[] {
     const stmt = this.db.prepare(`
-      WITH RECURSIVE call_chain AS (
-        -- Start: the modified function
-        SELECT id, name, file_path, 0 as depth
-        FROM functions
-        WHERE id = ?
+      WITH RECURSIVE
+        -- Step 1: expand the modified function to include all override relatives
+        override_group AS (
+          -- The function itself
+          SELECT id FROM functions WHERE id = ?
 
-        UNION ALL
+          UNION
 
-        -- Recursive: find all functions that call it (max 5 levels)
-        SELECT f.id, f.name, f.file_path, cc.depth + 1
-        FROM functions f
-        JOIN function_calls fc ON f.id = fc.caller_id
-        JOIN call_chain cc ON fc.callee_id = cc.id
-        WHERE cc.depth < 5
-      )
+          -- All functions that override this one (children)
+          SELECT f.id FROM functions f
+          JOIN override_group og ON f.overrides_id = og.id
+
+          UNION
+
+          -- If this function overrides a base, include the base and its other overrides
+          SELECT f2.overrides_id FROM functions f2
+          WHERE f2.id = ? AND f2.overrides_id IS NOT NULL
+        ),
+        -- Step 2: from the expanded set, traverse call chain upward
+        call_chain AS (
+          SELECT f.id, f.name, f.file_path, 0 as depth
+          FROM functions f
+          WHERE f.id IN (SELECT id FROM override_group WHERE id IS NOT NULL)
+
+          UNION ALL
+
+          SELECT f.id, f.name, f.file_path, cc.depth + 1
+          FROM functions f
+          JOIN function_calls fc ON f.id = fc.caller_id
+          JOIN call_chain cc ON fc.callee_id = cc.id
+          WHERE cc.depth < 5
+        )
       SELECT DISTINCT
         test_func.name as testName,
         test_func.file_path as testFile,
@@ -173,7 +191,33 @@ export class ImpactAnalyzer {
       ORDER BY cc.depth, test_func.name
     `)
 
-    return stmt.all(functionId) as TestInfo[]
+    return stmt.all(functionId, functionId) as TestInfo[]
+  }
+
+  /**
+   * Find polymorphic impact: given a function, return all override-related functions
+   * that would also be affected by a change
+   */
+  findPolymorphicImpact(functionId: number): FunctionInfo[] {
+    const stmt = this.db.prepare(`
+      WITH RECURSIVE override_tree AS (
+        -- Start: the function itself
+        SELECT id, name, file_path, complexity, 0 as call_depth
+        FROM functions WHERE id = ?
+
+        UNION ALL
+
+        -- Downward: children that override this function
+        SELECT f.id, f.name, f.file_path, f.complexity, ot.call_depth + 1
+        FROM functions f
+        JOIN override_tree ot ON f.overrides_id = ot.id
+        WHERE ot.call_depth < 10
+      )
+      SELECT * FROM override_tree
+      WHERE id != ?
+    `)
+
+    return stmt.all(functionId, functionId) as FunctionInfo[]
   }
 
   /**

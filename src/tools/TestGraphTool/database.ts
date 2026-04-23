@@ -19,6 +19,32 @@ export interface FunctionMetadata {
   isExported?: boolean
   lastModified: number
   gitCommitHash?: string
+  classId?: number | null
+  isVirtual?: boolean
+  overridesId?: number | null
+}
+
+/**
+ * 类/接口元数据
+ */
+export interface ClassMetadata {
+  id?: number
+  name: string
+  filePath: string
+  startLine?: number
+  endLine?: number
+  kind: 'class' | 'abstract' | 'interface'
+  language: string
+}
+
+/**
+ * 类继承关系
+ */
+export interface ClassInherits {
+  id?: number
+  childId: number
+  parentId: number
+  relation: 'extends' | 'implements'
 }
 
 /**
@@ -103,6 +129,27 @@ export class TestGraphDatabase {
 
     // 执行 schema（bun:sqlite 使用 exec）
     this.db.exec(schema)
+
+    // 迁移：为已有数据库补充 OO 相关列
+    this.migrate()
+  }
+
+  /**
+   * 数据库迁移：为已存在的 functions 表添加多态相关列
+   */
+  private migrate(): void {
+    const migrations = [
+      `ALTER TABLE functions ADD COLUMN class_id INTEGER`,
+      `ALTER TABLE functions ADD COLUMN is_virtual BOOLEAN DEFAULT 0`,
+      `ALTER TABLE functions ADD COLUMN overrides_id INTEGER`,
+    ]
+    for (const sql of migrations) {
+      try {
+        this.db.exec(sql)
+      } catch {
+        // 列已存在，忽略
+      }
+    }
   }
 
   /**
@@ -113,8 +160,10 @@ export class TestGraphDatabase {
       INSERT INTO functions (
         name, file_path, start_line, end_line, complexity,
         language, signature, is_test, is_exported,
-        last_modified, git_commit_hash, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, strftime('%s', 'now'))
+        last_modified, git_commit_hash,
+        class_id, is_virtual, overrides_id,
+        updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, strftime('%s', 'now'))
       ON CONFLICT(name, file_path, start_line) DO UPDATE SET
         end_line = excluded.end_line,
         complexity = excluded.complexity,
@@ -123,6 +172,9 @@ export class TestGraphDatabase {
         is_exported = excluded.is_exported,
         last_modified = excluded.last_modified,
         git_commit_hash = excluded.git_commit_hash,
+        class_id = excluded.class_id,
+        is_virtual = excluded.is_virtual,
+        overrides_id = excluded.overrides_id,
         updated_at = strftime('%s', 'now')
       RETURNING id
     `)
@@ -138,10 +190,124 @@ export class TestGraphDatabase {
       func.isTest ? 1 : 0,
       func.isExported ? 1 : 0,
       func.lastModified,
-      func.gitCommitHash || null
+      func.gitCommitHash || null,
+      func.classId ?? null,
+      func.isVirtual ? 1 : 0,
+      func.overridesId ?? null
     ) as { id: number }
 
     return result.id
+  }
+
+  /**
+   * 插入或更新类/接口
+   */
+  upsertClass(cls: ClassMetadata): number {
+    const stmt = this.db.prepare(`
+      INSERT INTO classes (
+        name, file_path, start_line, end_line, kind, language, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, strftime('%s', 'now'))
+      ON CONFLICT(name, file_path) DO UPDATE SET
+        start_line = excluded.start_line,
+        end_line = excluded.end_line,
+        kind = excluded.kind,
+        updated_at = strftime('%s', 'now')
+      RETURNING id
+    `)
+
+    const result = stmt.get(
+      cls.name,
+      cls.filePath,
+      cls.startLine || 0,
+      cls.endLine || 0,
+      cls.kind,
+      cls.language
+    ) as { id: number }
+
+    return result.id
+  }
+
+  /**
+   * 插入类继承关系
+   */
+  insertClassInherits(inherits: ClassInherits): void {
+    const stmt = this.db.prepare(`
+      INSERT OR IGNORE INTO class_inherits (
+        child_id, parent_id, relation
+      ) VALUES (?, ?, ?)
+    `)
+    stmt.run(inherits.childId, inherits.parentId, inherits.relation)
+  }
+
+  /**
+   * 查找类
+   */
+  findClass(name: string, filePath?: string): ClassMetadata | null {
+    let stmt
+    let result
+
+    if (filePath) {
+      stmt = this.db.prepare(`SELECT * FROM classes WHERE name = ? AND file_path = ? LIMIT 1`)
+      result = stmt.get(name, filePath)
+    } else {
+      stmt = this.db.prepare(`SELECT * FROM classes WHERE name = ? LIMIT 1`)
+      result = stmt.get(name)
+    }
+
+    if (!result) return null
+    const row = result as any
+    return {
+      id: row.id,
+      name: row.name,
+      filePath: row.file_path,
+      startLine: row.start_line,
+      endLine: row.end_line,
+      kind: row.kind,
+      language: row.language
+    }
+  }
+
+  /**
+   * 查找某个虚方法的所有覆写（子类实现）
+   */
+  findOverrides(baseFunctionId: number): FunctionMetadata[] {
+    const stmt = this.db.prepare(`
+      SELECT * FROM functions WHERE overrides_id = ?
+    `)
+    return stmt.all(baseFunctionId).map(r => this.mapToFunctionMetadata(r as any))
+  }
+
+  /**
+   * 递归查找所有覆写链（整棵继承树下的同名虚方法）
+   */
+  findAllOverrides(baseFunctionId: number): FunctionMetadata[] {
+    const stmt = this.db.prepare(`
+      WITH RECURSIVE override_chain AS (
+        SELECT id, name, file_path, start_line, end_line, complexity,
+               language, signature, is_test, is_exported, last_modified,
+               git_commit_hash, class_id, is_virtual, overrides_id
+        FROM functions
+        WHERE overrides_id = ?
+
+        UNION ALL
+
+        SELECT f.id, f.name, f.file_path, f.start_line, f.end_line, f.complexity,
+               f.language, f.signature, f.is_test, f.is_exported, f.last_modified,
+               f.git_commit_hash, f.class_id, f.is_virtual, f.overrides_id
+        FROM functions f
+        JOIN override_chain oc ON f.overrides_id = oc.id
+      )
+      SELECT * FROM override_chain
+    `)
+    return stmt.all(baseFunctionId).map(r => this.mapToFunctionMetadata(r as any))
+  }
+
+  /**
+   * 查找某个类的所有方法
+   */
+  findClassMethods(classId: number): FunctionMetadata[] {
+    const stmt = this.db.prepare(`SELECT * FROM functions WHERE class_id = ?`)
+    return stmt.all(classId).map(r => this.mapToFunctionMetadata(r as any))
   }
 
   /**
@@ -355,7 +521,10 @@ export class TestGraphDatabase {
       isTest: row.is_test === 1,
       isExported: row.is_exported === 1,
       lastModified: row.last_modified,
-      gitCommitHash: row.git_commit_hash
+      gitCommitHash: row.git_commit_hash,
+      classId: row.class_id ?? null,
+      isVirtual: row.is_virtual === 1,
+      overridesId: row.overrides_id ?? null
     }
   }
 }

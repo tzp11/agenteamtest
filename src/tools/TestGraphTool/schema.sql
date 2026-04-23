@@ -1,7 +1,33 @@
 -- TestGraph SQLite Schema
 -- 用于存储代码关系图谱和测试覆盖率信息
 
--- 1. 函数表：存储所有函数/方法的元数据
+-- 1a. 类/接口表：存储类和接口的元数据
+CREATE TABLE IF NOT EXISTS classes (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL,                    -- 类/接口名称
+  file_path TEXT NOT NULL,               -- 文件路径
+  start_line INTEGER DEFAULT 0,          -- 起始行号
+  end_line INTEGER DEFAULT 0,            -- 结束行号
+  kind TEXT NOT NULL DEFAULT 'class',    -- 'class' | 'abstract' | 'interface'
+  language TEXT NOT NULL,                -- 编程语言
+  created_at INTEGER DEFAULT (strftime('%s', 'now')),
+  updated_at INTEGER DEFAULT (strftime('%s', 'now')),
+  UNIQUE(name, file_path)
+);
+
+-- 1b. 类继承关系表
+CREATE TABLE IF NOT EXISTS class_inherits (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  child_id INTEGER NOT NULL,             -- 子类 ID
+  parent_id INTEGER NOT NULL,            -- 父类/接口 ID
+  relation TEXT NOT NULL DEFAULT 'extends', -- 'extends' | 'implements'
+  created_at INTEGER DEFAULT (strftime('%s', 'now')),
+  FOREIGN KEY (child_id) REFERENCES classes(id) ON DELETE CASCADE,
+  FOREIGN KEY (parent_id) REFERENCES classes(id) ON DELETE CASCADE,
+  UNIQUE(child_id, parent_id, relation)
+);
+
+-- 1c. 函数表：存储所有函数/方法的元数据
 CREATE TABLE IF NOT EXISTS functions (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   name TEXT NOT NULL,                    -- 函数名称
@@ -15,6 +41,9 @@ CREATE TABLE IF NOT EXISTS functions (
   is_exported BOOLEAN DEFAULT 0,         -- 是否导出
   last_modified INTEGER NOT NULL,        -- 最后修改时间（Unix timestamp）
   git_commit_hash TEXT,                  -- 最后修改的 commit hash
+  class_id INTEGER,                      -- 所属类 ID（NULL = 自由函数）
+  is_virtual BOOLEAN DEFAULT 0,          -- 是否为虚方法（virtual/abstract/override）
+  overrides_id INTEGER,                  -- 覆写的基类方法 ID（自引用）
   created_at INTEGER DEFAULT (strftime('%s', 'now')),
   updated_at INTEGER DEFAULT (strftime('%s', 'now')),
   UNIQUE(name, file_path, start_line)
@@ -81,6 +110,9 @@ CREATE TABLE IF NOT EXISTS affected_functions (
 CREATE INDEX IF NOT EXISTS idx_functions_file ON functions(file_path);
 CREATE INDEX IF NOT EXISTS idx_functions_name ON functions(name);
 CREATE INDEX IF NOT EXISTS idx_functions_is_test ON functions(is_test);
+CREATE INDEX IF NOT EXISTS idx_functions_class ON functions(class_id);
+CREATE INDEX IF NOT EXISTS idx_functions_overrides ON functions(overrides_id);
+CREATE INDEX IF NOT EXISTS idx_functions_virtual ON functions(is_virtual);
 CREATE INDEX IF NOT EXISTS idx_function_calls_caller ON function_calls(caller_id);
 CREATE INDEX IF NOT EXISTS idx_function_calls_callee ON function_calls(callee_id);
 CREATE INDEX IF NOT EXISTS idx_test_coverage_test ON test_coverage(test_function_id);
@@ -89,6 +121,10 @@ CREATE INDEX IF NOT EXISTS idx_git_changes_file ON git_changes(file_path);
 CREATE INDEX IF NOT EXISTS idx_git_changes_commit ON git_changes(commit_hash);
 CREATE INDEX IF NOT EXISTS idx_affected_functions_change ON affected_functions(change_id);
 CREATE INDEX IF NOT EXISTS idx_affected_functions_function ON affected_functions(function_id);
+CREATE INDEX IF NOT EXISTS idx_classes_name ON classes(name);
+CREATE INDEX IF NOT EXISTS idx_classes_file ON classes(file_path);
+CREATE INDEX IF NOT EXISTS idx_class_inherits_child ON class_inherits(child_id);
+CREATE INDEX IF NOT EXISTS idx_class_inherits_parent ON class_inherits(parent_id);
 
 -- 视图：未覆盖的函数
 CREATE VIEW IF NOT EXISTS uncovered_functions AS
@@ -132,3 +168,24 @@ SELECT
 FROM functions f
 LEFT JOIN test_coverage tc ON f.id = tc.covered_function_id
 WHERE f.is_test = 0;
+
+-- 视图：多态方法及其覆写关系
+CREATE VIEW IF NOT EXISTS polymorphic_methods AS
+SELECT
+  f.id,
+  f.name,
+  f.file_path,
+  f.class_id,
+  c.name as class_name,
+  c.kind as class_kind,
+  f.is_virtual,
+  f.overrides_id,
+  base.name as overrides_name,
+  base_c.name as overrides_class_name
+FROM functions f
+LEFT JOIN classes c ON f.class_id = c.id
+LEFT JOIN functions base ON f.overrides_id = base.id
+LEFT JOIN classes base_c ON base.class_id = base_c.id
+WHERE f.class_id IS NOT NULL
+  AND (f.is_virtual = 1 OR f.overrides_id IS NOT NULL)
+ORDER BY c.name, f.name;
